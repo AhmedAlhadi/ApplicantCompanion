@@ -1,0 +1,7 @@
+# Full production integrations (installed in the Docker image).
+# The core app runs without these by falling back to local implementations:
+#   - no qdrant-client  -> in-process vector store (VECTOR_STORE=memory)
+#   - no minio          -> local filesystem object store (OBJECT_STORE=local)
+-r requirements.txt
+qdrant-client==1.12.1
+minio==7.2.12

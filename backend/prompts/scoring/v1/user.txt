@@ -1,0 +1,7 @@
+Produce the scoring narrative for this analysis.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

@@ -1,0 +1,7 @@
+Generate the targeted CV.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.
