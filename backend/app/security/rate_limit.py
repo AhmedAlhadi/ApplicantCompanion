@@ -8,8 +8,9 @@ from __future__ import annotations
 import time
 from collections import defaultdict, deque
 
-from fastapi import HTTPException, Request, status
+from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from ..config import get_settings
 
@@ -28,8 +29,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             while window and now - window[0] > 60:
                 window.popleft()
             if len(window) >= limit:
-                raise HTTPException(
-                    status.HTTP_429_TOO_MANY_REQUESTS, "Rate limit exceeded"
+                return JSONResponse(
+                    {"detail": "Rate limit exceeded"},
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
             window.append(now)
         return await call_next(request)

@@ -114,6 +114,22 @@ def _keyword_score(query_tokens: set[str], text: str) -> float:
     return len(overlap) / len(query_tokens)
 
 
+_indexed_users: set[str] = set()
+
+
+def _ensure_indexed(db: Session, user_id: str) -> None:
+    """Lazy per-user indexing.
+
+    The in-process vector backend does not survive process restarts, and the
+    seeder may run in a different process than the API. On first retrieval per
+    user per process, (re)index that user's entities — idempotent for Qdrant.
+    """
+    if user_id in _indexed_users:
+        return
+    _indexed_users.add(user_id)
+    index_all_for_user(db, user_id)
+
+
 def retrieve_evidence(
     db: Session,
     user_id: str,
@@ -124,6 +140,7 @@ def retrieve_evidence(
     semantic_weight: float = 0.65,
 ) -> list[EvidenceItem]:
     """Hybrid retrieval: semantic + keyword + metadata filtering (§35)."""
+    _ensure_indexed(db, user_id)
     normalized = normalize_query(query)
     query_vec = get_embedding_provider().embed([normalized])[0]
     hits = get_vector_store().search(

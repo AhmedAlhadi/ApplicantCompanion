@@ -32,14 +32,17 @@ def _get_owned_job(db: Session, job_id: str, user: User) -> Job:
     return job
 
 
-def _run_analysis_background(job_id: str, user_id: str, include_research: bool) -> None:
+def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_research: bool) -> None:
     """Background entrypoint with its own session (§53)."""
     db = SessionLocal()
     try:
         job = db.get(Job, job_id)
         user = db.get(User, user_id)
-        if job and user:
-            Orchestrator(db, user).run_job_analysis(job, include_research=include_research)
+        run = db.get(WorkflowRun, run_id)
+        if job and user and run:
+            run.status = "RUNNING"
+            db.flush()
+            Orchestrator(db, user).run_job_analysis(job, include_research=include_research, run=run)
     finally:
         db.close()
 
@@ -125,19 +128,23 @@ def analyze_job(job_id: str, payload: AnalyzeRequest | None = None, db: Session 
     include_research = payload.include_research if payload else True
     run = (
         db.query(WorkflowRun)
-        .filter(WorkflowRun.job_id == job_id, WorkflowRun.status == "RUNNING")
+        .filter(
+            WorkflowRun.job_id == job_id,
+            WorkflowRun.workflow_type == "job_analysis",
+            WorkflowRun.status.in_(("PENDING", "RUNNING")),
+        )
         .first()
     )
     if run is None:
-        submit(_run_analysis_background, job.id, user.id, include_research)
-        db.flush()
-        run = (
-            db.query(WorkflowRun)
-            .filter(WorkflowRun.job_id == job_id)
-            .order_by(WorkflowRun.created_at.desc())
-            .first()
-        )
-    return {"status": "accepted", "workflow_run_id": run.id if run else None}
+        # Create the run row synchronously so clients get its id immediately,
+        # then execute in the background (§53).
+        from ..agents.orchestrator import ANALYSIS_STAGES
+
+        run = Orchestrator(db, user).create_run("job_analysis", ANALYSIS_STAGES, job_id=job.id)
+        job.status = "analyzing"
+        db.commit()
+        submit(_run_analysis_background, job.id, user.id, run.id, include_research)
+    return {"status": "accepted", "workflow_run_id": run.id}
 
 
 @router.get("/{job_id}/analysis")

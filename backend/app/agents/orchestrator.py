@@ -103,6 +103,15 @@ class Orchestrator:
         run.stages = stages
         run.current_stage = name
         self.db.flush()
+        try:
+            from ..workers.runner import publish
+
+            publish("workflow", run.id, {"type": "workflow", "data": {
+                "id": run.id, "status": run.status, "current_stage": run.current_stage,
+                "stages": run.stages, "workflow_type": run.workflow_type,
+            }})
+        except Exception:
+            pass  # SSE fan-out is best-effort; polling remains as fallback
 
     def _ctx(self, run: WorkflowRun, job_id=None, application_id=None) -> AgentContext:
         return AgentContext(
@@ -113,10 +122,15 @@ class Orchestrator:
             workflow_run_id=run.id,
         )
 
+    def create_run(self, workflow_type: str, stages: list[str], job_id=None, application_id=None) -> WorkflowRun:
+        """Create the run row synchronously so the API can return its id
+        before background execution starts."""
+        return self._new_run(workflow_type, stages, job_id=job_id, application_id=application_id)
+
     # ── workflow 1: job analysis (§9) ─────────────────────────────────────
 
-    def run_job_analysis(self, job: Job, *, include_research: bool = True) -> WorkflowRun:
-        run = self._new_run("job_analysis", ANALYSIS_STAGES, job_id=job.id)
+    def run_job_analysis(self, job: Job, *, include_research: bool = True, run: WorkflowRun | None = None) -> WorkflowRun:
+        run = run or self._new_run("job_analysis", ANALYSIS_STAGES, job_id=job.id)
         ctx = self._ctx(run, job_id=job.id)
         job.status = "analyzing"
         self.db.flush()
