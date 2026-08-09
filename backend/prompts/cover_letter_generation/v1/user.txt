@@ -1,0 +1,7 @@
+Generate the targeted cover letter.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

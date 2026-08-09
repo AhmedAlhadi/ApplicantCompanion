@@ -1,0 +1,9 @@
+Extract the career information from the following document.
+
+Document name: {document_name}
+
+<document>
+{document_text}
+</document>
+
+Return only the JSON object.

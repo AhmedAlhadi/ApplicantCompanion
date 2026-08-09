@@ -1,0 +1,7 @@
+Analyze this job description.
+
+<job_description>
+{jd_text}
+</job_description>
+
+Return only the JSON object.

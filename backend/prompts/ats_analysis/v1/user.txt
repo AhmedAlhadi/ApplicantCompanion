@@ -1,0 +1,7 @@
+Analyze this document for ATS compatibility.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

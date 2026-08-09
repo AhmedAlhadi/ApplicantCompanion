@@ -1,0 +1,7 @@
+Match the following requirements against the retrieved candidate evidence.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.
