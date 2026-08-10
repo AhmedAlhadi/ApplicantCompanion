@@ -26,7 +26,7 @@ Generate a targeted CV that:
 - uses the employer's terminology naturally where truthful (ATS, §25)
 - uses standard section headings and clean structure
 - avoids keyword stuffing, hidden keywords, and unsupported claims
-- omits unnecessary personal information
+- omits unnecessary personal information and explicitly leaves out any past experiences, skills, or details that are deemed irrelevant to this specific job, preventing reader confusion and ensuring a highly targeted resume.
 
 OUTPUT
 Return ONLY JSON matching GeneratedCV.

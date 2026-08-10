@@ -201,7 +201,8 @@ class Orchestrator:
                     self.db,
                     queries=[
                         f"{job.organization_name} official website mission strategy",
-                        f"{job.organization_name} {job.department or job.position_title} initiatives",
+                        f"{job.organization_name} {job.department or job.position_title} initiatives latest news",
+                        f"{job.organization_name} {job.department or job.position_title} department culture environment",
                     ],
                     extra_urls=extract_urls(job.raw_jd_text) + ([job.source_url] if job.source_url else []),
                 )
@@ -244,7 +245,7 @@ class Orchestrator:
                 snippets = gather_snippets(
                     self.db,
                     queries=[
-                        f"{job.organization_name} {job.department} director head leadership",
+                        f"{job.organization_name} {job.department} director head leadership latest news",
                         f"{job.organization_name} {job.position_title} hiring manager team",
                     ],
                 )
