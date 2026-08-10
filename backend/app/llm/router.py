@@ -11,7 +11,13 @@ from dataclasses import dataclass
 
 from ..config import Settings, get_settings
 from .base import LLMProvider
-from .providers import GeminiProvider, MockProvider, OllamaProvider, OpenAIProvider
+from .providers import (
+    GeminiProvider,
+    MockProvider,
+    OllamaProvider,
+    OpenAIProvider,
+    OpenRouterProvider,
+)
 
 TASKS = (
     "extraction",
@@ -25,12 +31,15 @@ TASKS = (
     "ats",
 )
 
+PROVIDER_ORDER = ("openrouter", "openai", "gemini", "ollama", "mock")
+
 _providers: dict[str, LLMProvider] = {}
 
 
 def get_provider(name: str) -> LLMProvider:
     if name not in _providers:
         registry: dict[str, type[LLMProvider]] = {
+            "openrouter": OpenRouterProvider,
             "openai": OpenAIProvider,
             "gemini": GeminiProvider,
             "ollama": OllamaProvider,
@@ -75,12 +84,13 @@ def routing_table() -> dict[str, str]:
 def provider_status() -> dict[str, dict]:
     settings = get_settings()
     out = {}
-    for name in ("openai", "gemini", "ollama", "mock"):
+    for name in PROVIDER_ORDER:
         provider = get_provider(name)
         out[name] = {
             "available": provider.is_available(),
             "configured": bool(
-                (name == "openai" and settings.openai_api_key)
+                (name == "openrouter" and settings.openrouter_api_key)
+                or (name == "openai" and settings.openai_api_key)
                 or (name == "gemini" and settings.gemini_api_key)
                 or name in ("ollama", "mock")
             ),

@@ -11,7 +11,7 @@ for the annotated template. Key groups:
 | Database | `DATABASE_URL` | `postgresql+psycopg2://…` in prod, `sqlite:///…` for dev |
 | Vectors | `VECTOR_STORE`, `QDRANT_URL`, `QDRANT_API_KEY` | `qdrant` or `memory` |
 | Objects | `OBJECT_STORE`, `MINIO_*`, `LOCAL_STORAGE_PATH` | `minio` or `local` |
-| LLMs | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`, `LLM_MODEL_*` | Per-task routing (§45) |
+| LLMs | `OPENROUTER_API_KEY`, `OPENROUTER_*`, `LLM_MODEL_*` (optional: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`) | OpenRouter primary; per-task routing (§45) |
 | Research | `RESEARCH_ENABLED`, `RESEARCH_MAX_PAGES`, `RESEARCH_TIMEOUT_SECONDS` | Outbound fetching |
 | Uploads | `MAX_UPLOAD_MB`, `ALLOWED_UPLOAD_EXTENSIONS` | |
 | Security | `RATE_LIMIT_PER_MINUTE`, `ACCESS_TOKEN_EXPIRE_MINUTES` | |
@@ -66,5 +66,5 @@ alembic revision --autogenerate -m "…"   # create a new migration after model 
 3. HTTPS in front (reverse proxy terminating TLS).
 4. `SEED_DEMO_DATA=false` and a unique `SEED_USER_PASSWORD` — or register the
    first account and rotate credentials immediately.
-5. Real LLM keys + `EMBEDDING_PROVIDER=openai` for best retrieval quality.
+5. `OPENROUTER_API_KEY` + `EMBEDDING_PROVIDER=openrouter` for best retrieval quality.
 6. Restrict egress to required domains if your platform supports it.

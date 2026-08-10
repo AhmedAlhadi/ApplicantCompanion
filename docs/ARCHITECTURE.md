@@ -90,7 +90,7 @@ never blocks matching or generation (§54).
 `Query → normalization → embedding → vector search → SQL metadata filter →
 keyword re-rank → dedup → top-N evidence`.
 
-- Embeddings: deterministic feature-hashing (offline/default) or OpenAI.
+- Embeddings: deterministic feature-hashing (offline/default), OpenRouter, or OpenAI.
 - Vector store: Qdrant in production; an in-process cosine store with the same
   interface for dev/tests. Lazy per-user re-indexing keeps the in-process
   store correct across process restarts.

@@ -43,26 +43,32 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     local_storage_path: str = str(BASE_DIR / "storage")
 
-    # LLM providers
+    # LLM providers (OpenRouter is the primary gateway; others remain optional)
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_http_referer: str = "http://localhost:5173"
+    openrouter_app_title: str = "ApplicantCompanion"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     gemini_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
 
     # Task -> "provider:model" routing (§45 cost management)
-    llm_model_extraction: str = "mock:deterministic"
-    llm_model_classification: str = "mock:deterministic"
-    llm_model_research: str = "mock:deterministic"
-    llm_model_scoring: str = "mock:deterministic"
-    llm_model_matching: str = "mock:deterministic"
-    llm_model_strategy: str = "mock:deterministic"
-    llm_model_cv_generation: str = "mock:deterministic"
-    llm_model_cover_letter: str = "mock:deterministic"
-    llm_model_ats: str = "mock:deterministic"
+    # Defaults use OpenRouter model IDs; without OPENROUTER_API_KEY the router
+    # falls back to the deterministic mock provider.
+    llm_model_extraction: str = "openrouter:openai/gpt-4o-mini"
+    llm_model_classification: str = "openrouter:openai/gpt-4o-mini"
+    llm_model_research: str = "openrouter:openai/gpt-4o-mini"
+    llm_model_scoring: str = "openrouter:openai/gpt-4o-mini"
+    llm_model_matching: str = "openrouter:openai/gpt-4o-mini"
+    llm_model_strategy: str = "openrouter:openai/gpt-4o"
+    llm_model_cv_generation: str = "openrouter:openai/gpt-4o"
+    llm_model_cover_letter: str = "openrouter:openai/gpt-4o"
+    llm_model_ats: str = "openrouter:openai/gpt-4o-mini"
 
     # Embeddings
-    embedding_provider: str = "hash"  # hash | openai
-    embedding_model: str = "text-embedding-3-small"
+    embedding_provider: str = "hash"  # hash | openrouter | openai
+    embedding_model: str = "openai/text-embedding-3-small"
     embedding_dim: int = 384
 
     # Scoring

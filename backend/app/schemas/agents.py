@@ -5,11 +5,85 @@ critical application logic never depends on free-form LLM text.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ── Career knowledge extraction (§6) ─────────────────────────────────────────
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    """Accept plain strings or dicts like {description, quantified_result}."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        value = [value]
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                out.append(text)
+            continue
+        if isinstance(item, dict):
+            text = (
+                item.get("description")
+                or item.get("text")
+                or item.get("achievement")
+                or item.get("name")
+                or ""
+            )
+            if not isinstance(text, str):
+                text = str(text) if text is not None else ""
+            text = text.strip()
+            metric = item.get("quantified_result") or item.get("metric") or item.get("result")
+            if isinstance(metric, str) and metric.strip() and metric.strip() not in text:
+                text = f"{text} ({metric.strip()})" if text else metric.strip()
+            if text:
+                out.append(text)
+            continue
+        text = str(item).strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _coerce_skill_list(value: Any) -> list[dict[str, str]]:
+    """Accept skill name strings or {name, category} objects."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        value = [value]
+    out: list[dict[str, str]] = []
+    for item in value:
+        if isinstance(item, str):
+            name = item.strip()
+            if name:
+                out.append({"name": name, "category": "technical"})
+            continue
+        if isinstance(item, BaseModel):
+            dumped = item.model_dump()
+            name = str(dumped.get("name") or "").strip()
+            if name:
+                out.append(
+                    {
+                        "name": name,
+                        "category": str(dumped.get("category") or "technical").strip() or "technical",
+                    }
+                )
+            continue
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("skill") or item.get("canonical_name") or ""
+            if not isinstance(name, str):
+                name = str(name) if name is not None else ""
+            name = name.strip()
+            if not name:
+                continue
+            category = item.get("category") or "technical"
+            if not isinstance(category, str) or not category.strip():
+                category = "technical"
+            out.append({"name": name, "category": category.strip()})
+    return out
 
 
 class ExtractedExperience(BaseModel):
@@ -30,6 +104,22 @@ class ExtractedExperience(BaseModel):
     quantified_results: list[str] = Field(default_factory=list)
     confidence: float = 0.5
 
+    @field_validator(
+        "responsibilities",
+        "achievements",
+        "projects",
+        "technologies",
+        "skills",
+        "domains",
+        "leadership",
+        "stakeholders",
+        "quantified_results",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_str_lists(cls, value: Any) -> list[str]:
+        return _coerce_str_list(value)
+
 
 class ExtractedEducation(BaseModel):
     institution: str = ""
@@ -45,16 +135,42 @@ class ExtractedCertification(BaseModel):
     issue_date: str = ""
 
 
+class ExtractedSkill(BaseModel):
+    name: str = ""
+    category: str = "technical"
+
+
+class ExtractedLanguage(BaseModel):
+    language: str = ""
+    proficiency: str = ""
+
+
+class ExtractedPublication(BaseModel):
+    title: str = ""
+    venue: str = ""
+    year: str = ""
+
+
 class CareerExtractionResult(BaseModel):
     experiences: list[ExtractedExperience] = Field(default_factory=list)
-    skills: list[dict] = Field(default_factory=list)  # {name, category}
+    skills: list[ExtractedSkill] = Field(default_factory=list)
     education: list[ExtractedEducation] = Field(default_factory=list)
     certifications: list[ExtractedCertification] = Field(default_factory=list)
-    languages: list[dict] = Field(default_factory=list)  # {language, proficiency}
+    languages: list[ExtractedLanguage] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
-    publications: list[dict] = Field(default_factory=list)
+    publications: list[ExtractedPublication] = Field(default_factory=list)
     summary: str = ""
     notes: list[str] = Field(default_factory=list)
+
+    @field_validator("skills", mode="before")
+    @classmethod
+    def _normalize_skills(cls, value: Any) -> list[dict[str, str]]:
+        return _coerce_skill_list(value)
+
+    @field_validator("achievements", "notes", mode="before")
+    @classmethod
+    def _normalize_str_lists(cls, value: Any) -> list[str]:
+        return _coerce_str_list(value)
 
 
 # ── JD analysis (§10-11) ─────────────────────────────────────────────────────

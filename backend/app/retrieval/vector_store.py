@@ -7,9 +7,19 @@ interface with brute-force cosine similarity.
 from __future__ import annotations
 
 import math
+import uuid
 from dataclasses import dataclass, field
 
 from ..config import get_settings
+
+
+def _qdrant_point_id(logical_id: str) -> str:
+    """Map logical string IDs to Qdrant-compatible UUID point IDs.
+
+    Qdrant only accepts unsigned integers or UUIDs as point IDs. Callers use
+    stable logical keys such as ``experience:<uuid>``.
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"applicant-companion:{logical_id}"))
 
 
 @dataclass
@@ -109,29 +119,57 @@ class QdrantVectorStore(VectorStore):
 
         self._client.upsert(
             collection_name=self._collection,
-            points=[PointStruct(id=r.id, vector=r.vector, payload=r.payload) for r in records],
+            points=[
+                PointStruct(
+                    id=_qdrant_point_id(r.id),
+                    vector=r.vector,
+                    payload={**r.payload, "logical_id": r.id},
+                )
+                for r in records
+            ],
         )
 
     def search(self, vector, limit=20, where=None) -> list[ScoredRecord]:
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
         qfilter = None
         if where:
-            qfilter = Filter(
-                must=[FieldCondition(key=k, match=MatchValue(value=v)) for k, v in where.items()]
-            )
+            must = []
+            for k, v in where.items():
+                if isinstance(v, (list, tuple, set)):
+                    must.append(FieldCondition(key=k, match=MatchAny(any=list(v))))
+                else:
+                    must.append(FieldCondition(key=k, match=MatchValue(value=v)))
+            qfilter = Filter(must=must)
         hits = self._client.query_points(
             collection_name=self._collection, query=vector, limit=limit, query_filter=qfilter
         ).points
-        return [ScoredRecord(str(h.id), h.score, h.payload or {}) for h in hits]
+        return [
+            ScoredRecord(
+                str((h.payload or {}).get("logical_id") or h.id),
+                h.score,
+                h.payload or {},
+            )
+            for h in hits
+        ]
 
     def delete(self, ids: list[str]) -> None:
-        self._client.delete(collection_name=self._collection, points_selector=ids)
+        from qdrant_client.models import PointIdsList
+
+        if not ids:
+            return
+        self._client.delete(
+            collection_name=self._collection,
+            points_selector=PointIdsList(points=[_qdrant_point_id(i) for i in ids]),
+        )
 
     def clear(self) -> None:
-        from qdrant_client.models import Filter
+        from qdrant_client.models import Filter, FilterSelector
 
-        self._client.delete(collection_name=self._collection, points_selector=Filter())
+        self._client.delete(
+            collection_name=self._collection,
+            points_selector=FilterSelector(filter=Filter()),
+        )
 
 
 _store: VectorStore | None = None

@@ -1,20 +1,45 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { AppDocument, Application, Strategy, Template, WorkflowRun } from "../api/types";
+import type { AppDocument, Application, JobScore, Strategy, Template } from "../api/types";
 import { Empty, ErrorBox, ProgressStages, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+
+type ThresholdGate = {
+  code?: string;
+  score: number;
+  threshold: number;
+  message: string;
+  gaps: string[];
+};
+
+function isThresholdGate(detail: unknown): detail is ThresholdGate {
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    "score" in detail &&
+    "threshold" in detail &&
+    typeof (detail as ThresholdGate).score === "number" &&
+    typeof (detail as ThresholdGate).threshold === "number"
+  );
+}
 
 export default function ApplicationDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const app = useApi<Application>(() => api.get(`/api/applications/${id}`), [id]);
   const strategy = useApi<Strategy>(() => api.get(`/api/applications/${id}/strategy`), [id]);
   const docs = useApi<AppDocument[]>(() => api.get(`/api/applications/${id}/documents`), [id]);
   const templates = useApi<Template[]>(() => api.get("/api/templates"));
   const [templateKey, setTemplateKey] = useState("minimal-ats");
   const [busy, setBusy] = useState<string | null>(null);
-  const [gate, setGate] = useState<{ score: number; threshold: number; message: string; gaps: string[] } | null>(null);
+  const [gate, setGate] = useState<ThresholdGate | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [workflowId, setWorkflowId] = useState<string | null>(null);
+
+  const a = app.data;
+  const score = useApi<JobScore | null>(
+    () => (a?.job_id ? api.get<JobScore>(`/api/jobs/${a.job_id}/score`) : Promise.resolve(null)),
+    [a?.job_id]
+  );
 
   const workflowPoll = useWorkflow(null, busy ? `/api/applications/${id}/workflow` : null, () => {
     setBusy(null);
@@ -22,12 +47,34 @@ export default function ApplicationDetail() {
     app.reload();
   });
 
-  const a = app.data;
+  const belowThreshold =
+    !!score.data &&
+    score.data.overall_score < score.data.threshold &&
+    !!a &&
+    !a.user_approved;
+
+  const activeGate: ThresholdGate | null =
+    gate ??
+    (belowThreshold
+      ? {
+          code: "BELOW_THRESHOLD",
+          score: score.data!.overall_score,
+          threshold: score.data!.threshold,
+          message:
+            "Generation is blocked until you approve continuing with a below-threshold fit score. " +
+            "Approve below to generate documents, or cancel the application.",
+          gaps: score.data!.gaps ?? [],
+        }
+      : null);
 
   const decide = async (decision: "continue" | "cancel" | "review_gaps") => {
     await api.post(`/api/applications/${id}/decide`, { decision });
     setGate(null);
+    setError(null);
     app.reload();
+    if (decision === "review_gaps" && a?.job_id) {
+      navigate(`/jobs/${a.job_id}`);
+    }
   };
 
   const generate = async (kind: "cv" | "cover-letter" | "all") => {
@@ -38,8 +85,16 @@ export default function ApplicationDetail() {
       await api.post(`/api/applications/${id}/generate-${kind}`, { template_key: templateKey });
     } catch (err) {
       setBusy(null);
-      if (err instanceof ApiError && err.status === 409 && typeof err.detail === "object" && err.detail !== null) {
-        setGate(err.detail as any);
+      if (err instanceof ApiError && err.status === 409 && isThresholdGate(err.detail)) {
+        setGate({
+          ...err.detail,
+          message:
+            typeof err.detail.message === "string"
+              ? err.detail.message
+              : "Generation is blocked until you approve the below-threshold fit score.",
+          gaps: Array.isArray(err.detail.gaps) ? err.detail.gaps : [],
+        });
+        setError(null);
       } else {
         setError(err instanceof Error ? err.message : "Generation failed");
       }
@@ -72,17 +127,21 @@ export default function ApplicationDetail() {
 
       {a.fit_score != null && (
         <div className="panel">
-          <ScoreRing score={a.fit_score} />
+          <ScoreRing score={a.fit_score} threshold={score.data?.threshold} />
         </div>
       )}
 
-      {gate && (
+      {activeGate && (
         <div className="alert warn">
-          <strong>{gate.message}</strong>
-          <div className="small mt">Estimated fit: {Math.round(gate.score * 100)}% (threshold {Math.round(gate.threshold * 100)}%)</div>
-          {!!gate.gaps?.length && (
+          <strong>Approval required</strong>
+          <div className="mt">{activeGate.message}</div>
+          <div className="small mt">
+            Estimated fit: {Math.round(activeGate.score * 100)}% (threshold {Math.round(activeGate.threshold * 100)}%)
+            {a.user_approved ? "" : " — not yet approved"}
+          </div>
+          {!!activeGate.gaps?.length && (
             <ul className="small" style={{ marginBottom: 0 }}>
-              {gate.gaps.slice(0, 4).map((g, i) => <li key={i}>{g}</li>)}
+              {activeGate.gaps.slice(0, 4).map((g, i) => <li key={i}>{g}</li>)}
             </ul>
           )}
           <div className="row mt">
@@ -127,6 +186,12 @@ export default function ApplicationDetail() {
 
       <div className="panel">
         <h3>Generate Documents</h3>
+        {activeGate && (
+          <div className="alert warn mb">
+            Document generation is blocked until you approve the below-threshold fit score
+            ({Math.round(activeGate.score * 100)}% &lt; {Math.round(activeGate.threshold * 100)}%).
+          </div>
+        )}
         <div className="row mb">
           <label style={{ margin: 0 }}>Theme</label>
           <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} style={{ width: "auto" }}>
@@ -134,9 +199,9 @@ export default function ApplicationDetail() {
           </select>
         </div>
         <div className="row">
-          <button className="primary" onClick={() => generate("cv")} disabled={!!busy}>{busy === "cv" ? <Spinner /> : null} Generate Targeted CV</button>
-          <button onClick={() => generate("cover-letter")} disabled={!!busy}>{busy === "cover-letter" ? <Spinner /> : null} Generate Cover Letter</button>
-          <button onClick={() => generate("all")} disabled={!!busy}>{busy === "all" ? <Spinner /> : null} Generate Both</button>
+          <button className="primary" onClick={() => generate("cv")} disabled={!!busy || !!activeGate}>{busy === "cv" ? <Spinner /> : null} Generate Targeted CV</button>
+          <button onClick={() => generate("cover-letter")} disabled={!!busy || !!activeGate}>{busy === "cover-letter" ? <Spinner /> : null} Generate Cover Letter</button>
+          <button onClick={() => generate("all")} disabled={!!busy || !!activeGate}>{busy === "all" ? <Spinner /> : null} Generate Both</button>
         </div>
         {busy && busy !== "strategy" && (
           <div className="mt">

@@ -1,9 +1,10 @@
 """Embedding providers.
 
-`hash`  — deterministic, offline bag-of-words hashing embedding. Produces
-          stable vectors with real cosine-similarity semantics for overlapping
-          vocabulary; powers dev mode and the test-suite.
-`openai`— OpenAI embeddings API, used when a key is configured.
+`hash`       — deterministic, offline bag-of-words hashing embedding. Produces
+               stable vectors with real cosine-similarity semantics for overlapping
+               vocabulary; powers dev mode and the test-suite.
+`openrouter` — OpenRouter OpenAI-compatible embeddings API (primary when keyed).
+`openai`     — OpenAI embeddings API, used when a key is configured.
 """
 from __future__ import annotations
 
@@ -49,24 +50,60 @@ class HashEmbeddingProvider:
         return vectors
 
 
+def _openai_compatible_embed(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    texts: list[str],
+    extra_headers: dict[str, str] | None = None,
+) -> list[list[float]]:
+    headers = {"Authorization": f"Bearer {api_key}", **(extra_headers or {})}
+    resp = httpx.post(
+        f"{base_url.rstrip('/')}/embeddings",
+        headers=headers,
+        json={"model": model, "input": texts},
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return [item["embedding"] for item in sorted(data["data"], key=lambda d: d["index"])]
+
+
+class OpenRouterEmbeddingProvider:
+    name = "openrouter"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        settings = get_settings()
+        return _openai_compatible_embed(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+            model=settings.embedding_model,
+            texts=texts,
+            extra_headers={
+                "HTTP-Referer": settings.openrouter_http_referer,
+                "X-Title": settings.openrouter_app_title,
+            },
+        )
+
+
 class OpenAIEmbeddingProvider:
     name = "openai"
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         settings = get_settings()
-        resp = httpx.post(
-            f"{settings.openai_base_url}/embeddings",
-            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json={"model": settings.embedding_model, "input": texts},
-            timeout=60.0,
+        return _openai_compatible_embed(
+            base_url=settings.openai_base_url,
+            api_key=settings.openai_api_key,
+            model=settings.embedding_model,
+            texts=texts,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        return [item["embedding"] for item in sorted(data["data"], key=lambda d: d["index"])]
 
 
 def get_embedding_provider():
     settings = get_settings()
+    if settings.embedding_provider == "openrouter" and settings.openrouter_api_key:
+        return OpenRouterEmbeddingProvider()
     if settings.embedding_provider == "openai" and settings.openai_api_key:
         return OpenAIEmbeddingProvider()
     return HashEmbeddingProvider(dim=settings.embedding_dim)

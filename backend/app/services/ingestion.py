@@ -158,14 +158,15 @@ class IngestionService:
 
         # skills via normalization agent (§7)
         if result.skills:
-            normalized = CareerNormalizationAgent().run(ctx, items=result.skills)
+            skill_items = [s.model_dump() for s in result.skills]
+            normalized = CareerNormalizationAgent().run(ctx, items=skill_items)
             by_key = {}
             for entry in normalized.get("canonical", []):
                 for alias in [entry["canonical_name"], *entry.get("aliases", [])]:
                     by_key[alias.lower()] = entry
             for raw in result.skills:
-                entry = by_key.get(raw.get("name", "").lower())
-                canonical = entry["canonical_name"] if entry else raw.get("name", "")
+                entry = by_key.get(raw.name.lower())
+                canonical = entry["canonical_name"] if entry else raw.name
                 aliases = entry.get("aliases", []) if entry else []
                 existing = (
                     self.db.query(Skill)
@@ -177,15 +178,19 @@ class IngestionService:
                     .first()
                 )
                 if existing:
-                    existing.synonyms = sorted(set(existing.synonyms or []) | {raw.get("name", "")} | set(aliases) - {canonical})
+                    existing.synonyms = sorted(set(existing.synonyms or []) | {raw.name} | set(aliases) - {canonical})
                     existing.evidence_count = (existing.evidence_count or 0) + 1
                     skill_row = existing
                 else:
                     skill_row = Skill(
                         user_id=self.user.id,
-                        name=raw.get("name", ""),
+                        name=raw.name,
                         canonical_name=canonical,
-                        category=entry.get("category", raw.get("category", "technical")) if entry else raw.get("category", "technical"),
+                        category=(
+                            entry.get("category", raw.category)
+                            if entry
+                            else raw.category or "technical"
+                        ),
                         synonyms=aliases,
                         evidence_count=1,
                         verification_status="needs_review",
@@ -194,7 +199,7 @@ class IngestionService:
                     self.db.add(skill_row)
                     self.db.flush()
                 created["skills"] += 1
-                self._provenance(skill_row.id, "skill", raw.get("name", ""), document, "Skills")
+                self._provenance(skill_row.id, "skill", raw.name, document, "Skills")
                 index_entity(self.db, "skill", skill_row.id)
 
         for edu in result.education:
@@ -227,8 +232,8 @@ class IngestionService:
             self.db.add(
                 Language(
                     user_id=self.user.id,
-                    language=lang.get("language", ""),
-                    proficiency=lang.get("proficiency", ""),
+                    language=lang.language,
+                    proficiency=lang.proficiency,
                 )
             )
             created["languages"] += 1

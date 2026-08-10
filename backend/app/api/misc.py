@@ -137,6 +137,15 @@ def models_config(user: User = Depends(get_current_user)):
     return {"providers": provider_status(), "routing": routing_table()}
 
 
+_DEFAULT_TEST_MODELS = {
+    "openrouter": "openai/gpt-4o-mini",
+    "openai": "gpt-4o-mini",
+    "gemini": "gemini-2.0-flash",
+    "ollama": "llama3.2",
+    "mock": "deterministic",
+}
+
+
 @router.post("/models/test")
 def test_model(payload: ModelTestRequest, user: User = Depends(get_current_user)):
     from ..llm.base import LLMRequest
@@ -145,9 +154,10 @@ def test_model(payload: ModelTestRequest, user: User = Depends(get_current_user)
     provider = get_provider(payload.provider)
     if not provider.is_available():
         return {"ok": False, "detail": f"Provider '{payload.provider}' is not available (missing key or unreachable)"}
+    model = payload.model or _DEFAULT_TEST_MODELS.get(payload.provider, "deterministic")
     try:
         response = provider.generate(
-            payload.model or "deterministic",
+            model,
             LLMRequest(
                 prompt_name="connectivity_test",
                 prompt_version="v1",

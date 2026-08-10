@@ -30,3 +30,6 @@ CONSTRAINTS
 
 OUTPUT
 Return ONLY JSON matching the CareerExtractionResult schema. No prose.
+- experiences: array of objects. For each role, you MUST extract the company name into `organization` and the role name into `job_title`. Also extract `start_date`, `end_date`, `location`, `projects`, `achievements`, `responsibilities`, `technologies`, and `skills` (as arrays of plain strings) associated with that role.
+- skills: array of objects {"name": string, "category": string}, never bare strings
+- achievements (global): array of plain strings (description with metrics inline), never objects

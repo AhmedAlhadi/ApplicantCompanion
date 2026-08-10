@@ -25,8 +25,9 @@ from ..workers.runner import submit
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
 BELOW_THRESHOLD_MESSAGE = (
-    "Your estimated fit for this position is below the configured threshold. "
-    "Would you like to continue with the application?"
+    "Generation is blocked until you approve continuing with a below-threshold fit score. "
+    "Your estimated fit is below the configured threshold — approve to generate documents, "
+    "or cancel the application."
 )
 
 

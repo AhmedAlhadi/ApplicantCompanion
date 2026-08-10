@@ -75,18 +75,21 @@ Seeded login: **demo@example.com / demo-password-123** (override with
 
 ## Using real LLMs
 
-Set keys in `.env` and route tasks to models — cheap models for extraction and
+OpenRouter is the primary provider. Set your key in `.env` and route tasks to
+OpenRouter model IDs (`org/model`) — cheaper models for extraction and
 classification, stronger ones for generation (§45 cost management):
 
 ```bash
-OPENAI_API_KEY=sk-...
-LLM_MODEL_EXTRACTION=openai:gpt-4o-mini
-LLM_MODEL_MATCHING=openai:gpt-4o-mini
-LLM_MODEL_CV_GENERATION=openai:gpt-4o
-LLM_MODEL_COVER_LETTER=openai:gpt-4o
-EMBEDDING_PROVIDER=openai
+OPENROUTER_API_KEY=sk-or-v1-...
+LLM_MODEL_EXTRACTION=openrouter:openai/gpt-4o-mini
+LLM_MODEL_MATCHING=openrouter:openai/gpt-4o-mini
+LLM_MODEL_CV_GENERATION=openrouter:openai/gpt-4o
+LLM_MODEL_COVER_LETTER=openrouter:openai/gpt-4o
+EMBEDDING_PROVIDER=openrouter
+EMBEDDING_MODEL=openai/text-embedding-3-small
 ```
 
+Optional direct providers (`openai`, `gemini`, `ollama`) remain available.
 Any task whose provider is unavailable automatically falls back to the
 deterministic offline provider and the fallback is recorded in the agent
 execution log.

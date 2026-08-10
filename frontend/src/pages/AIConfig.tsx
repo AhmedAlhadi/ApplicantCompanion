@@ -56,8 +56,9 @@ export default function AIConfig() {
             </p>
           ))}
           <p className="small muted mt">
-            Configure providers via environment variables (OPENAI_API_KEY, GEMINI_API_KEY, OLLAMA_BASE_URL) and route
-            tasks with LLM_MODEL_* settings. Without keys, the deterministic offline provider runs the full pipeline.
+            Primary provider is OpenRouter (`OPENROUTER_API_KEY`). Optional: OPENAI_API_KEY, GEMINI_API_KEY,
+            OLLAMA_BASE_URL. Route tasks with LLM_MODEL_* (`openrouter:org/model`). Without keys, the deterministic
+            offline provider runs the full pipeline.
           </p>
         </div>
 
