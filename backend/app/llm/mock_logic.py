@@ -382,6 +382,127 @@ def mock_career_normalization(user_message: str) -> dict:
     return {"canonical": canonical}
 
 
+# ── career reconciliation ────────────────────────────────────────────────────
+
+
+def _extract_all_json_blocks(user_message: str) -> list:
+    blocks = []
+    for m in re.finditer(r"```json\s*(.*?)```", user_message, re.DOTALL):
+        try:
+            blocks.append(json.loads(m.group(1)))
+        except json.JSONDecodeError:
+            continue
+    return blocks
+
+
+def _org_key(name: str) -> str:
+    key = re.sub(r"[^a-z0-9]", "", (name or "").lower())
+    for alias, canon in (
+        ("msft", "microsoft"),
+        ("goog", "google"),
+        ("fb", "meta"),
+        ("amazonwebservices", "aws"),
+    ):
+        if key == alias:
+            return canon
+    return key
+
+
+def _best_experience_match(extracted: dict, existing: list[dict]) -> dict | None:
+    org = _org_key(extracted.get("organization") or extracted.get("payload", {}).get("organization", ""))
+    title = (extracted.get("job_title") or extracted.get("payload", {}).get("job_title", "")).lower()
+    if not org:
+        return None
+    candidates = [e for e in existing if e.get("entity_type") == "experience" and _org_key(e.get("organization", "")) == org]
+    if not candidates:
+        return None
+    if title:
+        titled = [c for c in candidates if title and (title in (c.get("job_title") or "").lower() or (c.get("job_title") or "").lower() in title)]
+        if titled:
+            return titled[0]
+    return candidates[0]
+
+
+def _best_name_match(name: str, existing: list[dict], entity_type: str) -> dict | None:
+    key = _norm_key(name)
+    if not key:
+        return None
+    best = None
+    best_score = 0
+    for e in existing:
+        if e.get("entity_type") != entity_type:
+            continue
+        other = _norm_key(e.get("name") or e.get("label") or e.get("description") or "")
+        if not other:
+            continue
+        if key == other or key in other or other in key:
+            score = min(len(key), len(other)) / max(len(key), len(other))
+            if score > best_score:
+                best_score = score
+                best = e
+    return best if best_score >= 0.5 else None
+
+
+def mock_career_reconciliation(user_message: str) -> dict:
+    blocks = _extract_all_json_blocks(user_message)
+    existing: list[dict] = []
+    extracted: list[dict] = []
+    if len(blocks) >= 2:
+        existing = blocks[0] if isinstance(blocks[0], list) else blocks[0].get("existing", [])
+        extracted = blocks[1] if isinstance(blocks[1], list) else blocks[1].get("extracted", [])
+    elif len(blocks) == 1 and isinstance(blocks[0], dict):
+        existing = blocks[0].get("existing", [])
+        extracted = blocks[0].get("extracted", [])
+
+    proposals: list[dict] = []
+    for item in extracted:
+        entity_type = item.get("entity_type", "experience")
+        payload = item.get("payload") or item
+        action = "create"
+        target_id = None
+        target_label = ""
+        confidence = 0.55
+        reasoning = "No clear match in existing knowledge base."
+
+        if entity_type == "experience":
+            match = _best_experience_match({"organization": payload.get("organization", ""), "job_title": payload.get("job_title", "")}, existing)
+            if match:
+                action = "merge"
+                target_id = match.get("id")
+                target_label = match.get("label") or f"{match.get('job_title', '')} at {match.get('organization', '')}"
+                confidence = 0.85
+                reasoning = f"Same organization ({match.get('organization')}); treating as additional detail for existing role."
+        elif entity_type == "project":
+            match = _best_name_match(payload.get("name") or payload.get("description") or "", existing, "project")
+            if match:
+                action = "merge"
+                target_id = match.get("id")
+                target_label = match.get("label") or match.get("name") or ""
+                confidence = 0.8
+                reasoning = "Project name closely matches an existing project."
+        elif entity_type == "achievement":
+            text = payload.get("description") or payload.get("text") or ""
+            match = _best_name_match(text, existing, "achievement")
+            if match:
+                action = "merge"
+                target_id = match.get("id")
+                target_label = match.get("label") or (match.get("description") or "")[:80]
+                confidence = 0.75
+                reasoning = "Achievement text overlaps an existing achievement."
+
+        proposals.append({
+            "proposal_id": "",
+            "entity_type": entity_type,
+            "action": action,
+            "target_id": target_id,
+            "target_label": target_label,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "payload": payload,
+        })
+    return {"proposals": proposals}
+
+
 # ── JD analysis ──────────────────────────────────────────────────────────────
 
 _FIELD_RES = [
@@ -1084,6 +1205,7 @@ def mock_ats_analysis(user_message: str) -> dict:
 _DISPATCH = {
     "career_extraction": mock_career_extraction,
     "career_normalization": mock_career_normalization,
+    "career_reconciliation": mock_career_reconciliation,
     "jd_analysis": mock_jd_analysis,
     "organization_research": mock_organization_research,
     "hiring_manager_research": mock_hiring_research,

@@ -17,6 +17,7 @@ from .career import (
     Education,
     Experience,
     Language,
+    PendingIngestion,
     Project,
     Publication,
     Skill,
@@ -39,7 +40,7 @@ __all__ = [
     "AuditLog", "CareerDocument", "CareerEvidence", "CareerNarrative",
     "CareerProfile", "Certification", "CoverLetter", "CV", "DocumentVersion",
     "Education", "Experience", "HiringContext", "Job", "JobRequirement",
-    "JobScore", "Language", "Organization", "OrganizationResearch", "Person",
-    "Project", "Publication", "RequirementMatch", "ResearchSource", "Skill",
-    "Template", "User", "UserSetting", "WorkflowRun",
+    "JobScore", "Language", "Organization", "OrganizationResearch", "PendingIngestion",
+    "Person", "Project", "Publication", "RequirementMatch", "ResearchSource",
+    "Skill", "Template", "User", "UserSetting", "WorkflowRun",
 ]

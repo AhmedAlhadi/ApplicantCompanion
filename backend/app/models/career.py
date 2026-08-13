@@ -71,10 +71,18 @@ class Experience(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
 
 class Achievement(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """Measurable outcome, typically linked to an experience, project, or education.
+
+    Parent FKs are optional and independent: an achievement may hang off a role,
+    a standalone/nested project, an academic context, or (rarely) none yet.
+    """
+
     __tablename__ = "achievements"
 
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     experience_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("experiences.id"), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("projects.id"), nullable=True)
+    education_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("educations.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(500), default="")
     description: Mapped[str] = mapped_column(Text)
     quantified_result: Mapped[str] = mapped_column(String(500), default="")
@@ -195,3 +203,24 @@ class CareerNarrative(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base
     title: Mapped[str] = mapped_column(String(500), default="")
     content: Mapped[str] = mapped_column(Text)
     indexed: Mapped[bool] = mapped_column(default=False)
+
+
+class PendingIngestion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Human-in-the-loop reconciliation queue for extracted career entities.
+
+    After extraction, experiences / projects / achievements are stored here as
+    merge-or-create proposals until the user confirms them.
+    """
+
+    __tablename__ = "pending_ingestions"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("career_documents.id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    # pending | completed | discarded
+    proposals: Mapped[list] = mapped_column(JSON, default=list)
+    # Auto-applied entity counts (skills, education, …) written immediately
+    auto_applied: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[str] = mapped_column(Text, default="")

@@ -173,6 +173,26 @@ class CareerExtractionResult(BaseModel):
         return _coerce_str_list(value)
 
 
+# ── Career reconciliation (merge vs create) ──────────────────────────────────
+
+
+class ReconciliationProposal(BaseModel):
+    """One suggested action for an extracted career entity vs existing KB."""
+
+    proposal_id: str = ""
+    entity_type: Literal["experience", "project", "achievement"] = "experience"
+    action: Literal["create", "merge"] = "create"
+    target_id: str | None = None
+    target_label: str = ""
+    confidence: float = 0.5
+    reasoning: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class CareerReconciliationResult(BaseModel):
+    proposals: list[ReconciliationProposal] = Field(default_factory=list)
+
+
 # ── JD analysis (§10-11) ─────────────────────────────────────────────────────
 
 

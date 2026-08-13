@@ -43,6 +43,35 @@ def experience_payload(db: Session, exp: Experience) -> dict:
         .all()
     )
     data["achievements"] = [
+        {
+            "id": a.id,
+            "description": a.description,
+            "quantified_result": a.quantified_result,
+            "project_id": a.project_id,
+            "education_id": a.education_id,
+        }
+        for a in achievements
+    ]
+    projects = (
+        db.query(Project)
+        .filter(Project.experience_id == exp.id, Project.is_deleted == False)  # noqa: E712
+        .all()
+    )
+    data["projects"] = [
+        {"id": p.id, "name": p.name, "description": p.description, "role": p.role}
+        for p in projects
+    ]
+    return data
+
+
+def project_payload(db: Session, proj: Project) -> dict:
+    data = to_dict(proj)
+    achievements = (
+        db.query(Achievement)
+        .filter(Achievement.project_id == proj.id, Achievement.is_deleted == False)  # noqa: E712
+        .all()
+    )
+    data["achievements"] = [
         {"id": a.id, "description": a.description, "quantified_result": a.quantified_result}
         for a in achievements
     ]
@@ -56,6 +85,11 @@ def full_knowledge_base(db: Session, user_id: str) -> dict:
         .filter(Experience.user_id == user_id, Experience.is_deleted == False)  # noqa: E712
         .all()
     )
+    projects = (
+        db.query(Project)
+        .filter(Project.user_id == user_id, Project.is_deleted == False)  # noqa: E712
+        .all()
+    )
     return {
         "experiences": [experience_payload(db, e) for e in experiences],
         "achievements": [
@@ -64,10 +98,7 @@ def full_knowledge_base(db: Session, user_id: str) -> dict:
                 Achievement.user_id == user_id, Achievement.is_deleted == False  # noqa: E712
             )
         ],
-        "projects": [
-            to_dict(p)
-            for p in db.query(Project).filter(Project.user_id == user_id, Project.is_deleted == False)  # noqa: E712
-        ],
+        "projects": [project_payload(db, p) for p in projects],
         "skills": [
             to_dict(s)
             for s in db.query(Skill).filter(Skill.user_id == user_id, Skill.is_deleted == False)  # noqa: E712

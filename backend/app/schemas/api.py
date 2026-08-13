@@ -60,6 +60,8 @@ class ExperienceIn(BaseModel):
 
 class AchievementIn(BaseModel):
     experience_id: str | None = None
+    project_id: str | None = None
+    education_id: str | None = None
     title: str = ""
     description: str
     quantified_result: str = ""
@@ -134,6 +136,18 @@ class IngestTextRequest(BaseModel):
     text: str
     doc_type: str = "notes"
     filename: str = "pasted-text.txt"
+
+
+class ReconciliationDecisionIn(BaseModel):
+    proposal_id: str
+    action: Literal["create", "merge"] = "create"
+    target_id: str | None = None
+
+
+class ConfirmPendingIngestionRequest(BaseModel):
+    """User-confirmed merge/create decisions for a pending ingestion review."""
+
+    decisions: list[ReconciliationDecisionIn] = Field(default_factory=list)
 
 
 # ── Jobs ─────────────────────────────────────────────────────────────────────

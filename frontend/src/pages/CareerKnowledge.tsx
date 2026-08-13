@@ -1,5 +1,11 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import type {
+  IngestResult,
+  PendingIngestion,
+  ReconciliationAction,
+  ReconciliationProposal,
+} from "../api/types";
 import { Empty, ErrorBox, Link, useApi } from "../components/ui";
 
 /* Field-driven CRUD tabs keep every career entity editable with provenance
@@ -8,8 +14,12 @@ import { Empty, ErrorBox, Link, useApi } from "../components/ui";
 type Field = {
   name: string;
   label: string;
-  type?: "text" | "textarea" | "list" | "number" | "checkbox";
+  type?: "text" | "textarea" | "list" | "number" | "checkbox" | "select";
   required?: boolean;
+  /** When type=select, load options from this career API path */
+  optionsPath?: string;
+  optionLabel?: (row: any) => string;
+  emptyLabel?: string;
 };
 
 type EntityConfig = {
@@ -44,9 +54,18 @@ const ENTITIES: EntityConfig[] = [
   },
   {
     key: "projects", label: "Projects", path: "/api/career/projects", verifiable: true,
-    title: (r) => r.name, subtitle: (r) => r.role,
+    title: (r) => r.name,
+    subtitle: (r) => [r.role, r.experience_id ? "Linked to experience" : "Independent project"].filter(Boolean).join(" · "),
     fields: [
       { name: "name", label: "Project name", required: true },
+      {
+        name: "experience_id",
+        label: "Linked experience (optional)",
+        type: "select",
+        optionsPath: "/api/career/experiences",
+        optionLabel: (r) => `${r.job_title} — ${r.organization}`,
+        emptyLabel: "— None (independent project) —",
+      },
       { name: "role", label: "Your role" },
       { name: "description", label: "Description", type: "textarea" },
       { name: "technologies", label: "Technologies (one per line)", type: "list" },
@@ -56,11 +75,44 @@ const ENTITIES: EntityConfig[] = [
   },
   {
     key: "achievements", label: "Achievements", path: "/api/career/achievements", verifiable: true,
-    title: (r) => r.title || r.description.slice(0, 80), subtitle: (r) => r.quantified_result,
+    title: (r) => r.title || r.description.slice(0, 80),
+    subtitle: (r) => {
+      const links = [
+        r.experience_id && "Experience",
+        r.project_id && "Project",
+        r.education_id && "Education",
+      ].filter(Boolean);
+      const parent = links.length ? `Linked: ${links.join(", ")}` : "No parent link";
+      return [r.quantified_result, parent].filter(Boolean).join(" · ");
+    },
     fields: [
       { name: "title", label: "Title" },
       { name: "description", label: "Description", type: "textarea", required: true },
       { name: "quantified_result", label: "Quantified result" },
+      {
+        name: "experience_id",
+        label: "Linked experience",
+        type: "select",
+        optionsPath: "/api/career/experiences",
+        optionLabel: (r) => `${r.job_title} — ${r.organization}`,
+        emptyLabel: "— None —",
+      },
+      {
+        name: "project_id",
+        label: "Linked project (optional)",
+        type: "select",
+        optionsPath: "/api/career/projects",
+        optionLabel: (r) => r.name,
+        emptyLabel: "— None —",
+      },
+      {
+        name: "education_id",
+        label: "Linked education (optional)",
+        type: "select",
+        optionsPath: "/api/career/education",
+        optionLabel: (r) => [r.degree, r.field_of_study, r.institution].filter(Boolean).join(" · ") || r.institution,
+        emptyLabel: "— None —",
+      },
       { name: "skills", label: "Related skills (one per line)", type: "list" },
     ],
   },
@@ -125,12 +177,35 @@ function EntityForm({ config, initial, onSaved, onCancel }: { config: EntityConf
     const base: Record<string, any> = {};
     for (const f of config.fields) {
       const v = initial?.[f.name];
-      base[f.name] = f.type === "list" ? (v ?? []).join("\n") : v ?? (f.type === "checkbox" ? false : "");
+      if (f.type === "list") base[f.name] = (v ?? []).join("\n");
+      else if (f.type === "select") base[f.name] = v ?? "";
+      else base[f.name] = v ?? (f.type === "checkbox" ? false : "");
     }
     return base;
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectOptions, setSelectOptions] = useState<Record<string, any[]>>({});
+
+  useEffect(() => {
+    const selectFields = config.fields.filter((f) => f.type === "select" && f.optionsPath);
+    if (!selectFields.length) return;
+    let cancelled = false;
+    (async () => {
+      const next: Record<string, any[]> = {};
+      await Promise.all(
+        selectFields.map(async (f) => {
+          try {
+            next[f.name] = await api.get(f.optionsPath!);
+          } catch {
+            next[f.name] = [];
+          }
+        }),
+      );
+      if (!cancelled) setSelectOptions(next);
+    })();
+    return () => { cancelled = true; };
+  }, [config]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -142,6 +217,7 @@ function EntityForm({ config, initial, onSaved, onCancel }: { config: EntityConf
       if (f.type === "list") payload[f.name] = String(v).split("\n").map((s) => s.trim()).filter(Boolean);
       else if (f.type === "number") payload[f.name] = v === "" ? null : Number(v);
       else if (f.type === "checkbox") payload[f.name] = Boolean(v);
+      else if (f.type === "select") payload[f.name] = v === "" ? null : v;
       else payload[f.name] = v === "" ? (f.required ? v : null) : v;
     }
     try {
@@ -165,6 +241,13 @@ function EntityForm({ config, initial, onSaved, onCancel }: { config: EntityConf
             <textarea value={form[f.name]} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} required={f.required} rows={f.type === "list" ? 4 : 3} />
           ) : f.type === "checkbox" ? (
             <input type="checkbox" style={{ width: "auto" }} checked={!!form[f.name]} onChange={(e) => setForm({ ...form, [f.name]: e.target.checked })} />
+          ) : f.type === "select" ? (
+            <select value={form[f.name] ?? ""} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} required={f.required}>
+              <option value="">{f.emptyLabel || "— None —"}</option>
+              {(selectOptions[f.name] || []).map((opt) => (
+                <option key={opt.id} value={opt.id}>{(f.optionLabel || ((r) => r.id))(opt)}</option>
+              ))}
+            </select>
           ) : (
             <input value={form[f.name]} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} required={f.required} type={f.type === "number" ? "number" : "text"} step="any" />
           )}
@@ -201,6 +284,44 @@ function EntityTab({ config }: { config: EntityConfig }) {
   const [editing, setEditing] = useState<any | null>(null);
   const [adding, setAdding] = useState(false);
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
+  const needsParents = config.key === "achievements" || config.key === "projects";
+  const experiences = useApi<any[]>(
+    () => (needsParents ? api.get("/api/career/experiences") : Promise.resolve([])),
+    [needsParents],
+  );
+  const projects = useApi<any[]>(
+    () => (config.key === "achievements" ? api.get("/api/career/projects") : Promise.resolve([])),
+    [config.key],
+  );
+  const education = useApi<any[]>(
+    () => (config.key === "achievements" ? api.get("/api/career/education") : Promise.resolve([])),
+    [config.key],
+  );
+
+  const parentLabels = useMemo(() => {
+    const expMap = Object.fromEntries((experiences.data || []).map((e) => [e.id, `${e.job_title} — ${e.organization}`]));
+    const projMap = Object.fromEntries((projects.data || []).map((p) => [p.id, p.name]));
+    const eduMap = Object.fromEntries(
+      (education.data || []).map((e) => [e.id, [e.degree, e.field_of_study, e.institution].filter(Boolean).join(" · ") || e.institution]),
+    );
+    return { expMap, projMap, eduMap };
+  }, [experiences.data, projects.data, education.data]);
+
+  const subtitleFor = (row: any) => {
+    if (config.key === "achievements") {
+      const links = [
+        row.experience_id && parentLabels.expMap[row.experience_id] && `Exp: ${parentLabels.expMap[row.experience_id]}`,
+        row.project_id && parentLabels.projMap[row.project_id] && `Project: ${parentLabels.projMap[row.project_id]}`,
+        row.education_id && parentLabels.eduMap[row.education_id] && `Edu: ${parentLabels.eduMap[row.education_id]}`,
+      ].filter(Boolean);
+      return [row.quantified_result, links.length ? links.join(" · ") : "No parent link"].filter(Boolean).join(" · ");
+    }
+    if (config.key === "projects") {
+      const expLabel = row.experience_id ? parentLabels.expMap[row.experience_id] : null;
+      return [row.role, expLabel ? `Under: ${expLabel}` : "Independent project"].filter(Boolean).join(" · ");
+    }
+    return config.subtitle?.(row);
+  };
 
   const remove = async (id: string) => {
     if (!confirm("Delete this entry?")) return;
@@ -228,7 +349,7 @@ function EntityTab({ config }: { config: EntityConfig }) {
           <div className="row spread">
             <div>
               <div className="title">{config.title(row)}</div>
-              {config.subtitle && <div className="meta">{config.subtitle(row)}</div>}
+              <div className="meta">{subtitleFor(row)}</div>
             </div>
             <div className="row">
               {row.verification_status && <span className={`badge ${row.verification_status}`}>{row.verification_status.replace("_", " ")}</span>}
@@ -293,11 +414,293 @@ function ProfileTab() {
   );
 }
 
-function DocumentsTab() {
+function proposalSummary(p: ReconciliationProposal): string {
+  const payload = p.payload || {};
+  if (p.entity_type === "experience") {
+    return `${payload.job_title || "Role"} at ${payload.organization || "Organization"}`;
+  }
+  if (p.entity_type === "project") {
+    return String(payload.name || payload.description || "Project");
+  }
+  return String(payload.description || payload.title || "Achievement").slice(0, 140);
+}
+
+function proposalDetails(p: ReconciliationProposal): string {
+  const payload = p.payload || {};
+  const lines: string[] = [];
+  if (p.entity_type === "experience") {
+    const dates = [payload.start_date, payload.end_date || "Present"].filter(Boolean).join(" – ");
+    if (dates) lines.push(dates);
+    for (const r of (payload.responsibilities as string[]) || []) lines.push(`• ${r}`);
+    for (const a of (payload.achievements as string[]) || []) lines.push(`★ ${a}`);
+    const tech = (payload.technologies as string[]) || [];
+    if (tech.length) lines.push(`Tech: ${tech.join(", ")}`);
+  } else if (p.entity_type === "project") {
+    if (payload.description) lines.push(String(payload.description));
+    if (payload.role) lines.push(`Role: ${payload.role}`);
+  } else if (payload.quantified_result) {
+    lines.push(String(payload.quantified_result));
+  }
+  return lines.join("\n");
+}
+
+type DecisionState = {
+  action: ReconciliationAction;
+  target_id: string | null;
+};
+
+function ReconciliationReview({
+  pendingId,
+  onDone,
+  onBack,
+}: {
+  pendingId: string;
+  onDone: () => void;
+  onBack: () => void;
+}) {
+  const pending = useApi<PendingIngestion>(() => api.get(`/api/career/pending-ingestions/${pendingId}`), [pendingId]);
+  const experiences = useApi<any[]>(() => api.get("/api/career/experiences"));
+  const projects = useApi<any[]>(() => api.get("/api/career/projects"));
+  const achievements = useApi<any[]>(() => api.get("/api/career/achievements"));
+  const [decisions, setDecisions] = useState<Record<string, DecisionState>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pending.data?.proposals) return;
+    const init: Record<string, DecisionState> = {};
+    for (const p of pending.data.proposals) {
+      init[p.proposal_id] = {
+        action: p.action || "create",
+        target_id: p.target_id,
+      };
+    }
+    setDecisions(init);
+  }, [pending.data]);
+
+  const optionsFor = (entityType: string) => {
+    if (entityType === "experience") {
+      return (experiences.data || []).map((e) => ({
+        id: e.id,
+        label: `${e.job_title} — ${e.organization}`,
+      }));
+    }
+    if (entityType === "project") {
+      return (projects.data || []).map((p) => ({ id: p.id, label: p.name }));
+    }
+    return (achievements.data || []).map((a) => ({
+      id: a.id,
+      label: (a.title || a.description || "").slice(0, 80),
+    }));
+  };
+
+  const setDecision = (proposalId: string, patch: Partial<DecisionState>) => {
+    setDecisions((prev) => ({
+      ...prev,
+      [proposalId]: { ...prev[proposalId], ...patch },
+    }));
+  };
+
+  const confirmAll = async () => {
+    if (!pending.data) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = {
+        decisions: pending.data.proposals.map((p) => ({
+          proposal_id: p.proposal_id,
+          action: decisions[p.proposal_id]?.action || "create",
+          target_id:
+            (decisions[p.proposal_id]?.action || "create") === "merge"
+              ? decisions[p.proposal_id]?.target_id || null
+              : null,
+        })),
+      };
+      await api.post(`/api/career/pending-ingestions/${pendingId}/confirm`, payload);
+      onDone();
+    } catch (err: any) {
+      setError(typeof err.detail === "string" ? err.detail : "Failed to confirm");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const discard = async () => {
+    if (!window.confirm("Discard this extraction review? Auto-applied skills/education will remain.")) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/career/pending-ingestions/${pendingId}`);
+      onDone();
+    } catch (err: any) {
+      setError(typeof err.detail === "string" ? err.detail : "Failed to discard");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (pending.loading) return <p className="muted">Loading review…</p>;
+  if (pending.error || !pending.data) return <ErrorBox error={pending.error || "Not found"} />;
+
+  const mergeCount = Object.values(decisions).filter((d) => d.action === "merge").length;
+  const createCount = Object.values(decisions).filter((d) => d.action === "create").length;
+
+  return (
+    <div className="panel">
+      <div className="row spread mb">
+        <div>
+          <h3 style={{ margin: 0 }}>Review extracted knowledge</h3>
+          <p className="muted small" style={{ margin: "4px 0 0" }}>
+            {pending.data.document?.filename || "Pasted text"} · {pending.data.proposals.length} proposal
+            {pending.data.proposals.length === 1 ? "" : "s"} · suggested {mergeCount} merge / {createCount} create
+          </p>
+        </div>
+        <button className="ghost sm" onClick={onBack} disabled={busy}>Back</button>
+      </div>
+
+      {Object.entries(pending.data.auto_applied || {}).some(([, v]) => typeof v === "number" && v > 0) && (
+        <div className="alert info">
+          Already applied:{" "}
+          {Object.entries(pending.data.auto_applied)
+            .filter(([, v]) => typeof v === "number" && v > 0)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(" · ")}
+        </div>
+      )}
+
+      {pending.data.proposals.map((p) => {
+        const decision = decisions[p.proposal_id] || { action: p.action, target_id: p.target_id };
+        const options = optionsFor(p.entity_type);
+        return (
+          <div key={p.proposal_id} className={`recon-card ${decision.action}`}>
+            <div className="row spread">
+              <div>
+                <span className="badge needs_review">{p.entity_type}</span>{" "}
+                <strong>{proposalSummary(p)}</strong>
+              </div>
+              <span className="muted small">{Math.round((p.confidence || 0) * 100)}% confidence</span>
+            </div>
+            {p.reasoning && <p className="muted small" style={{ margin: "6px 0" }}>{p.reasoning}</p>}
+            {proposalDetails(p) && <div className="recon-payload">{proposalDetails(p)}</div>}
+
+            {decision.action === "merge" && (p.target_snapshot || decision.target_id) && (
+              <div className="alert warn" style={{ marginTop: 10, marginBottom: 0 }}>
+                Will merge into: <strong>{p.target_snapshot?.label || p.target_label || decision.target_id}</strong>
+                {p.target_snapshot?.responsibilities?.length ? (
+                  <div className="small muted">Existing bullets: {p.target_snapshot.responsibilities.slice(0, 2).join(" · ")}</div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="recon-actions">
+              <label className="small" style={{ margin: 0 }}>
+                <input
+                  type="radio"
+                  name={`action-${p.proposal_id}`}
+                  checked={decision.action === "merge"}
+                  onChange={() =>
+                    setDecision(p.proposal_id, {
+                      action: "merge",
+                      target_id: decision.target_id || p.target_id || options[0]?.id || null,
+                    })
+                  }
+                />{" "}
+                Merge into existing
+              </label>
+              <label className="small" style={{ margin: 0 }}>
+                <input
+                  type="radio"
+                  name={`action-${p.proposal_id}`}
+                  checked={decision.action === "create"}
+                  onChange={() => setDecision(p.proposal_id, { action: "create", target_id: null })}
+                />{" "}
+                Create as new
+              </label>
+              {decision.action === "merge" && (
+                <select
+                  value={decision.target_id || ""}
+                  onChange={(e) => setDecision(p.proposal_id, { target_id: e.target.value || null })}
+                >
+                  <option value="">Select existing {p.entity_type}…</option>
+                  {options.map((o) => (
+                    <option key={o.id} value={o.id}>{o.label}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      <ErrorBox error={error} />
+      <div className="row mt">
+        <button className="primary" onClick={confirmAll} disabled={busy || !pending.data.proposals.length}>
+          Confirm &amp; save
+        </button>
+        <button className="danger" onClick={discard} disabled={busy}>Discard</button>
+      </div>
+    </div>
+  );
+}
+
+function PendingIngestionsTab({
+  reviewId,
+  onReview,
+  onCleared,
+}: {
+  reviewId: string | null;
+  onReview: (id: string | null) => void;
+  onCleared: () => void;
+}) {
+  const pending = useApi<PendingIngestion[]>(() => api.get("/api/career/pending-ingestions?status_filter=pending"));
+
+  if (reviewId) {
+    return (
+      <ReconciliationReview
+        pendingId={reviewId}
+        onBack={() => onReview(null)}
+        onDone={() => {
+          onReview(null);
+          onCleared();
+          pending.reload();
+        }}
+      />
+    );
+  }
+
+  return (
+    <>
+      <p className="muted">
+        After extraction, experiences, projects and achievements wait here so you can confirm merges
+        into existing entries or create new ones.
+      </p>
+      {pending.loading && <p className="muted">Loading…</p>}
+      {!pending.loading && !pending.data?.length && <Empty>No pending reviews.</Empty>}
+      {pending.data?.map((row) => (
+        <div className="list-item" key={row.id}>
+          <div className="row spread">
+            <div>
+              <div className="title">{row.document?.filename || "Pasted text"}</div>
+              <div className="meta">
+                {row.proposals?.length || 0} proposal{(row.proposals?.length || 0) === 1 ? "" : "s"}
+                {" · "}
+                {(row.proposals || []).filter((p) => p.action === "merge").length} suggested merge
+                {" · "}
+                {new Date(row.created_at).toLocaleString()}
+              </div>
+            </div>
+            <button className="primary sm" onClick={() => onReview(row.id)}>Review</button>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => void }) {
   const docs = useApi<any[]>(() => api.get("/api/career/documents"));
   const [text, setText] = useState("");
   const [docType, setDocType] = useState("cv");
-  const [result, setResult] = useState<any | null>(null);
+  const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -318,13 +721,20 @@ function DocumentsTab() {
     }
   };
 
+  const handleIngestResult = (resp: IngestResult) => {
+    setResult(resp);
+    if (resp.pending_ingestion_id) {
+      onPendingCreated(resp.pending_ingestion_id);
+    }
+  };
+
   const ingestText = async () => {
     if (!text.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const resp = await api.post<any>("/api/career/ingest-text", { text, doc_type: docType });
-      setResult(resp.created);
+      const resp = await api.post<IngestResult>("/api/career/ingest-text", { text, doc_type: docType });
+      handleIngestResult(resp);
       setText("");
       docs.reload();
     } catch (err: any) {
@@ -336,14 +746,26 @@ function DocumentsTab() {
 
   const ingestDoc = async (id: string) => {
     setBusy(true);
+    setError(null);
     try {
-      const resp = await api.post<any>(`/api/career/documents/${id}/ingest`);
-      setResult(resp);
+      const resp = await api.post<IngestResult>(`/api/career/documents/${id}/ingest`);
+      handleIngestResult(resp);
       docs.reload();
+    } catch (err: any) {
+      setError(typeof err.detail === "string" ? err.detail : "Ingestion failed");
     } finally {
       setBusy(false);
     }
   };
+
+  const autoSummary = useMemo(() => {
+    if (!result?.auto_applied && !result?.created) return null;
+    const src = result.auto_applied || result.created || {};
+    return Object.entries(src)
+      .filter(([, v]) => typeof v === "number" && v > 0)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(" · ");
+  }, [result]);
 
   return (
     <>
@@ -369,9 +791,16 @@ function DocumentsTab() {
       </div>
       <ErrorBox error={error} />
       {result && (
-        <div className="alert info">
-          Extracted: {Object.entries(result).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k}: ${v}`).join(" · ")} — review them under the
-          relevant tabs and mark them verified.
+        <div className={`alert ${result.pending_ingestion_id ? "warn" : "ok"}`}>
+          {autoSummary ? <>Auto-applied: {autoSummary}. </> : null}
+          {result.pending_ingestion_id ? (
+            <>
+              {result.proposals_count} item{result.proposals_count === 1 ? "" : "s"} need your review
+              (merge into existing vs create new) — open the <strong>Pending review</strong> tab.
+            </>
+          ) : (
+            <>Extraction complete — review entries under the relevant tabs and mark them verified.</>
+          )}
         </div>
       )}
       <div className="panel">
@@ -435,11 +864,39 @@ function PreviousApplicationsTab() {
 
 export default function CareerKnowledge() {
   const [tab, setTab] = useState("profile");
-  const tabs = [{ key: "profile", label: "Profile" }, ...ENTITIES.map((e) => ({ key: e.key, label: e.label })), { key: "documents", label: "Documents" }, { key: "previous", label: "Previous Applications" }];
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  const pendingCount = useApi<PendingIngestion[]>(() => api.get("/api/career/pending-ingestions?status_filter=pending"));
+
+  const openPendingReview = (id: string) => {
+    setReviewId(id);
+    setTab("pending");
+    pendingCount.reload();
+  };
+
+  const tabs = [
+    { key: "profile", label: "Profile" },
+    ...ENTITIES.map((e) => ({ key: e.key, label: e.label })),
+    {
+      key: "pending",
+      label: pendingCount.data?.length
+        ? `Pending review (${pendingCount.data.length})`
+        : "Pending review",
+    },
+    { key: "documents", label: "Documents" },
+    { key: "previous", label: "Previous Applications" },
+  ];
+
   return (
     <>
       <h1 className="page-title">Career Knowledge</h1>
       <p className="page-sub">The authoritative, evidence-tracked source for every claim about your career.</p>
+      {!!pendingCount.data?.length && tab !== "pending" && (
+        <div className="alert warn">
+          You have {pendingCount.data.length} extraction{pendingCount.data.length === 1 ? "" : "s"} waiting for
+          merge/create confirmation.{" "}
+          <button className="sm" onClick={() => setTab("pending")}>Review now</button>
+        </div>
+      )}
       <div className="tabs">
         {tabs.map((t) => (
           <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>{t.label}</button>
@@ -447,7 +904,14 @@ export default function CareerKnowledge() {
       </div>
       {tab === "profile" && <ProfileTab />}
       {ENTITIES.map((e) => tab === e.key && <EntityTab key={e.key} config={e} />)}
-      {tab === "documents" && <DocumentsTab />}
+      {tab === "pending" && (
+        <PendingIngestionsTab
+          reviewId={reviewId}
+          onReview={setReviewId}
+          onCleared={() => pendingCount.reload()}
+        />
+      )}
+      {tab === "documents" && <DocumentsTab onPendingCreated={openPendingReview} />}
       {tab === "previous" && <PreviousApplicationsTab />}
     </>
   );

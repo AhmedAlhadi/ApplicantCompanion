@@ -1,0 +1,14 @@
+Reconcile newly extracted career entities against the user's existing knowledge base.
+
+Existing entities:
+```json
+{existing_json}
+```
+
+Newly extracted entities:
+```json
+{extracted_json}
+```
+
+For each extracted entity, decide whether to merge into an existing one or create a new entry.
+Return only the JSON object.

@@ -240,3 +240,49 @@ export interface AgentExecution {
   error: string;
   created_at: string;
 }
+
+export type ReconciliationEntityType = "experience" | "project" | "achievement";
+export type ReconciliationAction = "create" | "merge";
+
+export interface ReconciliationProposal {
+  proposal_id: string;
+  entity_type: ReconciliationEntityType;
+  action: ReconciliationAction;
+  target_id: string | null;
+  target_label: string;
+  confidence: number;
+  reasoning: string;
+  payload: Record<string, unknown>;
+  target_snapshot?: {
+    id: string;
+    label: string;
+    organization?: string;
+    job_title?: string;
+    name?: string;
+    description?: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    responsibilities?: string[];
+  };
+}
+
+export interface PendingIngestion {
+  id: string;
+  user_id: string;
+  document_id: string | null;
+  status: "pending" | "completed" | "discarded";
+  proposals: ReconciliationProposal[];
+  auto_applied: Record<string, number>;
+  summary: string;
+  created_at: string;
+  document?: { id: string; filename: string; doc_type: string } | null;
+}
+
+export interface IngestResult {
+  document_id: string;
+  pending_ingestion_id: string | null;
+  auto_applied: Record<string, number>;
+  proposals_count: number;
+  created?: Record<string, number>;
+  note?: string;
+}

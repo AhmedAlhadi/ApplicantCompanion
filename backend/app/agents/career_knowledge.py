@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from ..schemas.agents import CareerExtractionResult
+from ..schemas.agents import CareerExtractionResult, CareerReconciliationResult
 from ..security.injection import sanitize_untrusted
 from .base import BaseAgent
 
@@ -34,3 +34,18 @@ class CareerNormalizationAgent(BaseAgent):
 
             raise AgentError("Normalization output missing 'canonical'")
         return payload
+
+
+class CareerReconciliationAgent(BaseAgent):
+    """Decide merge vs create for extracted experiences / projects / achievements."""
+
+    name = "career_reconciliation"
+    task = "classification"
+    prompt_name = "career_reconciliation"
+    output_model = CareerReconciliationResult
+
+    def build_user_message(self, *, extracted_items: list[dict], existing_items: list[dict], **_) -> str:
+        return self.prompt.render_user(
+            existing_json=json.dumps(existing_items, indent=2),
+            extracted_json=json.dumps(extracted_items, indent=2),
+        )

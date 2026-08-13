@@ -42,9 +42,31 @@ def export_pdf(document_type: str, content: dict, profile: dict, template_config
     section_gap = spacing.get("section_gap", 14)
     entry_gap = spacing.get("entry_gap", 8)
 
-    name_style = ParagraphStyle("name", fontName=heading_font, fontSize=name_size, textColor=heading_color, spaceAfter=2)
-    headline_style = ParagraphStyle("headline", fontName=body_font, fontSize=body_size + 1, textColor=muted, spaceAfter=2)
-    h_style = ParagraphStyle("h", fontName=heading_font, fontSize=heading_size, textColor=accent, spaceBefore=section_gap, spaceAfter=4)
+    name_style = ParagraphStyle(
+        "name",
+        fontName=heading_font,
+        fontSize=name_size,
+        leading=name_size * 1.25,
+        textColor=heading_color,
+        spaceAfter=8,
+    )
+    headline_style = ParagraphStyle(
+        "headline",
+        fontName=body_font,
+        fontSize=body_size + 1,
+        leading=(body_size + 1) * 1.3,
+        textColor=muted,
+        spaceAfter=2,
+    )
+    h_style = ParagraphStyle(
+        "h",
+        fontName=heading_font,
+        fontSize=heading_size,
+        leading=heading_size * 1.25,
+        textColor=accent,
+        spaceBefore=section_gap,
+        spaceAfter=4,
+    )
     b_style = ParagraphStyle("b", fontName=body_font, fontSize=body_size, textColor=body_color, leading=body_size * 1.35)
     bullet_style = ParagraphStyle("bullet", parent=b_style, leftIndent=spacing.get("bullet_indent", 12), bulletIndent=0, spaceAfter=2)
     entry_style = ParagraphStyle("entry", fontName=heading_font, fontSize=body_size + 1, textColor=heading_color, spaceBefore=entry_gap)
@@ -170,6 +192,7 @@ def export_docx(document_type: str, content: dict, profile: dict, template_confi
 
     if document_type == "cv":
         name = document.add_paragraph()
+        name.paragraph_format.space_after = Pt(8)
         run = name.add_run(profile.get("full_name", ""))
         run.bold = True
         run.font.size = Pt(typo.get("name_size", 20))

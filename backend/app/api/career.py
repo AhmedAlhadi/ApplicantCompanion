@@ -17,6 +17,7 @@ from ..models import (
     Education,
     Experience,
     Language,
+    PendingIngestion,
     Project,
     Publication,
     Skill,
@@ -27,6 +28,7 @@ from ..retrieval.pipeline import index_entity, retrieve_evidence
 from ..schemas.api import (
     AchievementIn,
     CertificationIn,
+    ConfirmPendingIngestionRequest,
     EducationIn,
     ExperienceIn,
     IngestTextRequest,
@@ -63,6 +65,20 @@ def _get_owned(db: Session, model, entity_id: str, user: User):
     if obj is None or obj.user_id != user.id or getattr(obj, "is_deleted", False):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return obj
+
+
+def _validate_parent_links(db: Session, user: User, data: dict, *, for_achievement: bool = False) -> None:
+    """Ensure optional parent FKs point at entities owned by the current user."""
+    checks: list[tuple[str, type]] = [("experience_id", Experience)]
+    if for_achievement:
+        checks.extend([("project_id", Project), ("education_id", Education)])
+    for field, model in checks:
+        parent_id = data.get(field)
+        if not parent_id:
+            continue
+        parent = db.get(model, parent_id)
+        if parent is None or parent.user_id != user.id or getattr(parent, "is_deleted", False):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid {field}")
 
 
 def _claim_for(model, data: dict) -> str:
@@ -133,6 +149,10 @@ def _register_entity_routes():
             data = payload.model_dump()
             if model is Skill:
                 data.setdefault("canonical_name", data.get("name", ""))
+            if model is Achievement:
+                _validate_parent_links(db, user, data, for_achievement=True)
+            elif model is Project:
+                _validate_parent_links(db, user, data, for_achievement=False)
             obj = model(user_id=user.id, **data)
             db.add(obj)
             db.flush()
@@ -145,7 +165,12 @@ def _register_entity_routes():
 
         def update_item(entity_id: str, payload: schema, request: Request, path=path, model=model, vector_type=vector_type, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
             obj = _get_owned(db, model, entity_id, user)
-            for field, value in payload.model_dump().items():
+            data = payload.model_dump()
+            if model is Achievement:
+                _validate_parent_links(db, user, data, for_achievement=True)
+            elif model is Project:
+                _validate_parent_links(db, user, data, for_achievement=False)
+            for field, value in data.items():
                 setattr(obj, field, value)
             if model is Skill and not obj.canonical_name:
                 obj.canonical_name = obj.name
@@ -246,7 +271,110 @@ def ingest_text(payload: IngestTextRequest, request: Request, db: Session = Depe
     doc = service.store_document(payload.filename, payload.text.encode("utf-8"), "text/plain", payload.doc_type)
     result = service.ingest_document(doc)
     audit(db, user, "career.ingest_text", "career_document", doc.id, result, request)
-    return {"document_id": doc.id, "created": result}
+    return {"document_id": doc.id, **result}
+
+
+# ── pending ingestion reconciliation (human-in-the-loop) ─────────────────────
+
+
+def _pending_payload(db: Session, pending: PendingIngestion) -> dict:
+    data = to_dict(pending)
+    doc = db.get(CareerDocument, pending.document_id) if pending.document_id else None
+    data["document"] = (
+        {"id": doc.id, "filename": doc.filename, "doc_type": doc.doc_type} if doc else None
+    )
+    # Enrich proposals with current target snapshots for the review UI
+    enriched = []
+    for prop in pending.proposals or []:
+        item = dict(prop)
+        target_id = prop.get("target_id")
+        entity_type = prop.get("entity_type")
+        if target_id and entity_type:
+            model = {"experience": Experience, "project": Project, "achievement": Achievement}.get(entity_type)
+            if model:
+                target = db.get(model, target_id)
+                if target and not getattr(target, "is_deleted", False):
+                    if entity_type == "experience":
+                        item["target_snapshot"] = {
+                            "id": target.id,
+                            "label": f"{target.job_title} — {target.organization}",
+                            "organization": target.organization,
+                            "job_title": target.job_title,
+                            "start_date": target.start_date,
+                            "end_date": target.end_date,
+                            "responsibilities": target.responsibilities or [],
+                        }
+                    elif entity_type == "project":
+                        item["target_snapshot"] = {
+                            "id": target.id,
+                            "label": target.name,
+                            "name": target.name,
+                            "description": target.description,
+                        }
+                    else:
+                        item["target_snapshot"] = {
+                            "id": target.id,
+                            "label": (target.title or target.description or "")[:120],
+                            "description": target.description,
+                        }
+        enriched.append(item)
+    data["proposals"] = enriched
+    return data
+
+
+@router.get("/pending-ingestions")
+def list_pending_ingestions(
+    status_filter: str = "pending",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = db.query(PendingIngestion).filter(PendingIngestion.user_id == user.id)
+    if status_filter and status_filter != "all":
+        q = q.filter(PendingIngestion.status == status_filter)
+    rows = q.order_by(PendingIngestion.created_at.desc()).all()
+    return [_pending_payload(db, r) for r in rows]
+
+
+@router.get("/pending-ingestions/{pending_id}")
+def get_pending_ingestion(pending_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    pending = _get_owned(db, PendingIngestion, pending_id, user)
+    return _pending_payload(db, pending)
+
+
+@router.post("/pending-ingestions/{pending_id}/confirm")
+def confirm_pending_ingestion(
+    pending_id: str,
+    payload: ConfirmPendingIngestionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    pending = _get_owned(db, PendingIngestion, pending_id, user)
+    if pending.status != "pending":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Pending ingestion is already resolved")
+    service = IngestionService(db, user)
+    try:
+        applied = service.confirm_pending(pending, [d.model_dump() for d in payload.decisions])
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    audit(db, user, "career.pending_ingestion.confirm", "pending_ingestion", pending.id, applied, request)
+    return {"pending_ingestion_id": pending.id, "status": "completed", "applied": applied}
+
+
+@router.delete("/pending-ingestions/{pending_id}")
+def discard_pending_ingestion(
+    pending_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    pending = _get_owned(db, PendingIngestion, pending_id, user)
+    if pending.status != "pending":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Pending ingestion is already resolved")
+    service = IngestionService(db, user)
+    service.discard_pending(pending)
+    audit(db, user, "career.pending_ingestion.discard", "pending_ingestion", pending.id, request=request)
+    return {"discarded": pending_id}
 
 
 # ── evidence / traceability (§32) ────────────────────────────────────────────
