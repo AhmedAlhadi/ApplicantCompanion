@@ -132,6 +132,8 @@ tr:last-child td { border-bottom: none; }
 .list-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; background: var(--panel); }
 .list-item .title { font-weight: 700; font-size: 14.5px; }
 .list-item .meta { color: var(--text-muted); font-size: 12.5px; margin-top: 2px; }
+.title { font-weight: 700; font-size: 14.5px; }
+.meta { color: var(--text-muted); font-size: 12.5px; margin-top: 2px; }
 .muted { color: var(--text-muted); }
 .small { font-size: 12.5px; }
 .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
@@ -188,6 +190,48 @@ tr:last-child td { border-bottom: none; }
   white-space: pre-wrap;
 }
 .recon-card select { max-width: 360px; }
+
+.ck-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .ck-stats { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px) { .ck-stats { grid-template-columns: 1fr 1fr; } }
+.ck-map-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.ck-filter {
+  border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 700;
+  border: 1px solid var(--border); color: var(--text-muted); background: transparent;
+}
+.ck-filter.on { color: var(--text); border-color: var(--ck-color, var(--accent)); box-shadow: inset 0 0 0 1px var(--ck-color, var(--accent)); }
+.ck-map {
+  position: relative; height: 540px; background: var(--bg-soft);
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 8px;
+}
+.ck-map-svg { width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.ck-map-svg:active { cursor: grabbing; }
+.ck-edge { stroke: #3a4668; stroke-width: 1.2; }
+.ck-edge.skill { stroke-dasharray: 4 4; stroke: #4a5678; }
+.ck-edge.active { stroke: var(--accent); stroke-width: 1.8; }
+.ck-node { cursor: pointer; }
+.ck-node-label { fill: var(--text); font-size: 9.5px; font-weight: 600; pointer-events: none; }
+.ck-cluster-label { fill: var(--text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; pointer-events: none; }
+.ck-map-detail {
+  position: absolute; top: 12px; right: 12px; width: 268px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.role-card {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px; margin-bottom: 14px; background: var(--panel);
+}
+.role-desc { margin: 8px 0 0; color: var(--text-muted); font-size: 13px; }
+.role-nested { margin: 14px 0 0; padding-left: 14px; border-left: 2px solid var(--border); }
+.role-nested-label { font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+.role-nested-item {
+  background: var(--bg-soft); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+}
+.role-nested-title { font-weight: 700; font-size: 13.5px; }
+.role-bullets { margin: 6px 0 0; padding-left: 16px; color: var(--text-muted); font-size: 13px; }
+.role-achievement { font-size: 13px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 
 .empty { color: var(--text-muted); text-align: center; padding: 36px 0; }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--text-muted); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }

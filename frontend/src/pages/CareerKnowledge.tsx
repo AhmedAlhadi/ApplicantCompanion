@@ -1,11 +1,16 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type {
+  CareerAchievement,
+  CareerExperience,
+  CareerProject,
   IngestResult,
   PendingIngestion,
   ReconciliationAction,
   ReconciliationProposal,
 } from "../api/types";
+import { CareerOverview, type CareerTabKey } from "../components/CareerMap";
+import { ExperienceRoleCard } from "../components/ExperienceRoleCards";
 import { Empty, ErrorBox, Link, useApi } from "../components/ui";
 
 /* Field-driven CRUD tabs keep every career entity editable with provenance
@@ -285,13 +290,18 @@ function EntityTab({ config }: { config: EntityConfig }) {
   const [adding, setAdding] = useState(false);
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const needsParents = config.key === "achievements" || config.key === "projects";
+  const isExperience = config.key === "experience";
   const experiences = useApi<any[]>(
     () => (needsParents ? api.get("/api/career/experiences") : Promise.resolve([])),
     [needsParents],
   );
-  const projects = useApi<any[]>(
-    () => (config.key === "achievements" ? api.get("/api/career/projects") : Promise.resolve([])),
-    [config.key],
+  const projects = useApi<CareerProject[]>(
+    () => (config.key === "achievements" || isExperience ? api.get("/api/career/projects") : Promise.resolve([])),
+    [config.key, isExperience],
+  );
+  const nestedAchievements = useApi<CareerAchievement[]>(
+    () => (isExperience ? api.get("/api/career/achievements") : Promise.resolve([])),
+    [isExperience],
   );
   const education = useApi<any[]>(
     () => (config.key === "achievements" ? api.get("/api/career/education") : Promise.resolve([])),
@@ -344,7 +354,22 @@ function EntityTab({ config }: { config: EntityConfig }) {
       )}
       {loading && <p className="muted">Loading…</p>}
       {!loading && !data?.length && <Empty>Nothing here yet — add entries manually or ingest a document.</Empty>}
-      {data?.map((row) => (
+      {isExperience
+        ? (data as CareerExperience[] | undefined)?.map((row) => (
+          <ExperienceRoleCard
+            key={row.id}
+            experience={row}
+            projects={(projects.data || []).filter((p) => p.experience_id === row.id)}
+            achievements={nestedAchievements.data || []}
+            evidenceOpen={evidenceFor === row.id}
+            evidencePanel={<EvidencePanel entityType="experience" entityId={row.id} />}
+            onToggleEvidence={() => setEvidenceFor(evidenceFor === row.id ? null : row.id)}
+            onEdit={() => { setEditing(row); setAdding(false); }}
+            onRemove={() => remove(row.id)}
+            onVerify={() => verify(row.id, "verified")}
+          />
+        ))
+        : data?.map((row) => (
         <div className="list-item" key={row.id}>
           <div className="row spread">
             <div>
@@ -863,7 +888,7 @@ function PreviousApplicationsTab() {
 }
 
 export default function CareerKnowledge() {
-  const [tab, setTab] = useState("profile");
+  const [tab, setTab] = useState("overview");
   const [reviewId, setReviewId] = useState<string | null>(null);
   const pendingCount = useApi<PendingIngestion[]>(() => api.get("/api/career/pending-ingestions?status_filter=pending"));
 
@@ -874,6 +899,7 @@ export default function CareerKnowledge() {
   };
 
   const tabs = [
+    { key: "overview", label: "Overview" },
     { key: "profile", label: "Profile" },
     ...ENTITIES.map((e) => ({ key: e.key, label: e.label })),
     {
@@ -902,6 +928,7 @@ export default function CareerKnowledge() {
           <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>{t.label}</button>
         ))}
       </div>
+      {tab === "overview" && <CareerOverview onOpenTab={(key: CareerTabKey) => setTab(key)} />}
       {tab === "profile" && <ProfileTab />}
       {ENTITIES.map((e) => tab === e.key && <EntityTab key={e.key} config={e} />)}
       {tab === "pending" && (

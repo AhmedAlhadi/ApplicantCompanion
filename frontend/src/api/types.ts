@@ -286,3 +286,77 @@ export interface IngestResult {
   created?: Record<string, number>;
   note?: string;
 }
+
+export interface CareerExperience {
+  id: string;
+  organization: string;
+  job_title: string;
+  start_date: string | null;
+  end_date: string | null;
+  employment_type: string;
+  location: string;
+  description: string;
+  responsibilities: string[];
+  technologies: string[];
+  domains: string[];
+  leadership: string[];
+  stakeholders: string[];
+  verification_status: string;
+  confidence: number;
+}
+
+export interface CareerProject {
+  id: string;
+  experience_id: string | null;
+  name: string;
+  description: string;
+  role: string;
+  technologies: string[];
+  outcomes: string[];
+  urls: string[];
+  verification_status: string;
+  confidence?: number;
+}
+
+export interface CareerAchievement {
+  id: string;
+  experience_id: string | null;
+  project_id: string | null;
+  education_id: string | null;
+  title: string;
+  description: string;
+  quantified_result: string;
+  skills: string[];
+  verification_status: string;
+  confidence: number;
+}
+
+export interface CareerSkill {
+  id: string;
+  name: string;
+  canonical_name: string;
+  category: string;
+  proficiency: string;
+  years_experience: number | null;
+  synonyms: string[];
+  evidence_count: number;
+  verification_status: string;
+}
+
+export interface CareerEducation {
+  id: string;
+  institution: string;
+  degree: string;
+  field_of_study: string;
+  start_date: string | null;
+  end_date: string | null;
+  verification_status: string;
+}
+
+export interface CareerCertification {
+  id: string;
+  name: string;
+  issuer: string;
+  issue_date: string | null;
+  verification_status: string;
+}
