@@ -1,7 +1,59 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api, getToken, setToken, workflowEventsUrl } from "../api/client";
 import type { User, WorkflowRun } from "../api/types";
+
+type NavChild = { to: string; label: string; end?: boolean };
+type NavGroup = { to: string; label: string; end?: boolean; children?: NavChild[] };
+
+const NAV: NavGroup[] = [
+  { to: "/", label: "Dashboard", end: true },
+  {
+    to: "/career",
+    label: "My Career",
+    children: [
+      { to: "/career", label: "Knowledge Graph" },
+      { to: "/career?tab=experience", label: "Roles & Projects" },
+      { to: "/career?tab=skills", label: "Skills" },
+      { to: "/career?tab=achievements", label: "Achievements" },
+    ],
+  },
+  {
+    to: "/jobs",
+    label: "Jobs",
+    children: [
+      { to: "/jobs", label: "Job Match", end: true },
+    ],
+  },
+  { to: "/applications", label: "Applications" },
+  { to: "/documents", label: "Documents" },
+  { to: "/templates", label: "CV Templates" },
+  { to: "/cover-letter-templates", label: "Cover Letters" },
+  { to: "/settings", label: "Settings" },
+  { to: "/ai-config", label: "AI / Model Config" },
+];
+
+function careerTab(search: string) {
+  return new URLSearchParams(search).get("tab") || "overview";
+}
+
+function isParentActive(item: NavGroup, pathname: string) {
+  const url = new URL(item.to, "http://local");
+  if (item.end) return pathname === url.pathname;
+  return pathname === url.pathname || (url.pathname !== "/" && pathname.startsWith(`${url.pathname}/`));
+}
+
+function isChildActive(to: string, pathname: string, search: string, end?: boolean) {
+  const url = new URL(to, "http://local");
+  if (url.pathname !== pathname) {
+    if (!end && url.pathname !== "/" && pathname.startsWith(`${url.pathname}/`)) return true;
+    return false;
+  }
+  if (url.pathname === "/career") {
+    return careerTab(search) === (url.searchParams.get("tab") || "overview");
+  }
+  return true;
+}
 
 export function useApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
@@ -24,21 +76,11 @@ export function useApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
 
 export function Layout({ user }: { user: User }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const logout = () => {
     setToken(null);
     navigate("/login");
   };
-  const links: [string, string][] = [
-    ["/", "Dashboard"],
-    ["/career", "Career Knowledge"],
-    ["/jobs", "Jobs"],
-    ["/applications", "Applications"],
-    ["/templates", "CV Templates"],
-    ["/cover-letter-templates", "Cover Letter Templates"],
-    ["/documents", "Documents"],
-    ["/settings", "Settings"],
-    ["/ai-config", "AI / Model Config"],
-  ];
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -46,14 +88,43 @@ export function Layout({ user }: { user: User }) {
           Applicant<span>Companion</span>
         </div>
         <nav>
-          {links.map(([to, label]) => (
-            <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
-              {label}
-            </NavLink>
-          ))}
+          {NAV.map((item) => {
+            const parentActive = isParentActive(item, location.pathname);
+            return (
+              <div key={item.to} className="nav-group">
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={() => (parentActive ? "active" : "")}
+                >
+                  {item.label}
+                </NavLink>
+                {item.children && (
+                  <div className="nav-children">
+                    {item.children.map((child) => (
+                      <NavLink
+                        key={child.to}
+                        to={child.to}
+                        end={child.end}
+                        className={() =>
+                          isChildActive(child.to, location.pathname, location.search, child.end) ? "active" : ""
+                        }
+                      >
+                        {child.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar-footer">
-          <div>{user.full_name || user.email}</div>
+          <div className="sidebar-user">
+            <div className="sidebar-user-name">{user.full_name || user.email}</div>
+            <div className="sidebar-user-meta">{user.email}</div>
+            {user.is_admin && <span className="badge needs_review">Admin</span>}
+          </div>
           <button className="ghost sm" onClick={logout}>
             Sign out
           </button>
@@ -103,6 +174,17 @@ export function ProgressStages({ workflow }: { workflow: WorkflowRun | null }) {
   );
 }
 
+export function ProgressBar({ label }: { label?: string }) {
+  return (
+    <div className="progress-bar-wrap">
+      {label ? <div className="small muted mb">{label}</div> : null}
+      <div className="progress-bar" role="progressbar" aria-busy="true" aria-label={label || "Working"}>
+        <div className="progress-bar-indeterminate" />
+      </div>
+    </div>
+  );
+}
+
 /** Subscribe to live workflow progress over SSE, falling back to polling. */
 export function useWorkflow(runId: string | null, pollUrl: string | null, onDone?: () => void) {
   const [run, setRun] = useState<WorkflowRun | null>(null);
@@ -112,6 +194,7 @@ export function useWorkflow(runId: string | null, pollUrl: string | null, onDone
     if (!pollUrl) return;
     let stopped = false;
     let es: EventSource | null = null;
+    const pollingDeadline = Date.now() + 21 * 60 * 1000;
     const poll = async () => {
       try {
         const data = await api.get<WorkflowRun>(pollUrl);
@@ -123,6 +206,18 @@ export function useWorkflow(runId: string | null, pollUrl: string | null, onDone
         }
       } catch {
         /* keep polling */
+      }
+      if (Date.now() >= pollingDeadline) {
+        setRun((current) => ({
+          id: current?.id ?? runId ?? "",
+          status: "FAILED",
+          current_stage: current?.current_stage ?? "",
+          stages: current?.stages ?? [],
+          workflow_type: current?.workflow_type ?? "job_analysis",
+          error: "Progress polling exceeded the workflow lease. Retry the analysis.",
+        }));
+        doneRef.current?.();
+        return;
       }
       if (!stopped) timer = window.setTimeout(poll, 1200);
     };

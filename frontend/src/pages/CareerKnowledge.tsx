@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   CareerAchievement,
@@ -888,7 +889,11 @@ function PreviousApplicationsTab() {
 }
 
 export default function CareerKnowledge() {
-  const [tab, setTab] = useState("overview");
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") || "overview";
+  const setTab = (key: string) => {
+    setParams(key === "overview" ? {} : { tab: key }, { replace: true });
+  };
   const [reviewId, setReviewId] = useState<string | null>(null);
   const pendingCount = useApi<PendingIngestion[]>(() => api.get("/api/career/pending-ingestions?status_filter=pending"));
 
@@ -899,7 +904,7 @@ export default function CareerKnowledge() {
   };
 
   const tabs = [
-    { key: "overview", label: "Overview" },
+    { key: "overview", label: "Knowledge Graph" },
     { key: "profile", label: "Profile" },
     ...ENTITIES.map((e) => ({ key: e.key, label: e.label })),
     {
@@ -914,8 +919,8 @@ export default function CareerKnowledge() {
 
   return (
     <>
-      <h1 className="page-title">Career Knowledge</h1>
-      <p className="page-sub">The authoritative, evidence-tracked source for every claim about your career.</p>
+      <h1 className="page-title">My Career</h1>
+      <p className="page-sub">Visualize your experience, skills, and achievements as an interconnected knowledge graph.</p>
       {!!pendingCount.data?.length && tab !== "pending" && (
         <div className="alert warn">
           You have {pendingCount.data.length} extraction{pendingCount.data.length === 1 ? "" : "s"} waiting for

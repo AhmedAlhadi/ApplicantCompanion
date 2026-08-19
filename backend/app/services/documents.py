@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..schemas.agents import GeneratedCoverLetter, GeneratedCV, ValidationReport
 from ..templates.renderer import render_text
+from .document_postprocess import ensure_all_experiences, sanitize_cover_letter_content, sanitize_cv_content
 from .serializers import full_knowledge_base, to_dict
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,14 @@ class DocumentService:
         elif template_key:
             cv.template_key = template_key
 
-        content = result.model_dump()
+        content = sanitize_cv_content(result.model_dump())
+        content = ensure_all_experiences(
+            content,
+            payload.get("experiences") or [],
+            strategy=payload.get("strategy") or {},
+            job=payload.get("job") or {},
+            matches=payload.get("matches") or [],
+        )
         validation = self.validate_document("cv", content, application)
         ats = self._run_ats(ctx, "cv", content, application)
         version = self._new_version(
@@ -213,7 +221,7 @@ class DocumentService:
         elif template_key:
             letter.template_key = template_key
 
-        content = result.model_dump()
+        content = sanitize_cover_letter_content(result.model_dump())
         validation = self.validate_document("cover_letter", content, application)
         version = self._new_version(
             "cover_letter",
@@ -406,10 +414,18 @@ class DocumentService:
         payload = self._base_payload(application, strategy) if strategy else self._base_payload_min(application)
         if document_type == "cv":
             result: GeneratedCV = CVAgent().run(ctx, **payload)
-            fresh = result.model_dump()
+            fresh = sanitize_cv_content(result.model_dump())
+            if section == "experience":
+                fresh = ensure_all_experiences(
+                    fresh,
+                    payload.get("experiences") or [],
+                    strategy=payload.get("strategy") or {},
+                    job=payload.get("job") or {},
+                    matches=payload.get("matches") or [],
+                )
         else:
             result: GeneratedCoverLetter = CoverLetterAgent().run(ctx, **payload)
-            fresh = result.model_dump()
+            fresh = sanitize_cover_letter_content(result.model_dump())
 
         content = dict(current.content)
         if section in fresh:

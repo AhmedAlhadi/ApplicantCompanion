@@ -1,0 +1,52 @@
+{
+  "position_info": {
+    "title": "Data Platform Lead",
+    "company": "Example Organization",
+    "location": null
+  },
+  "requirements": {
+    "required": [
+      {
+        "description": "Master's degree, or Bachelor's degree with at least 8 years of relevant experience",
+        "category": "education",
+        "priority": "critical",
+        "any_of": [
+          [
+            {
+              "type": "degree",
+              "degree_level": "master"
+            }
+          ],
+          [
+            {
+              "type": "degree",
+              "degree_level": "bachelor"
+            },
+            {
+              "type": "experience",
+              "years": 8,
+              "terms": [
+                "data platform"
+              ]
+            }
+          ]
+        ]
+      }
+    ],
+    "preferred": [
+      "Cloud certification"
+    ]
+  },
+  "responsibilities": [
+    {
+      "description": "Lead delivery"
+    }
+  ],
+  "keywords": [
+    "Python",
+    {
+      "keyword": "data governance",
+      "classification": "technical_skill"
+    }
+  ]
+}

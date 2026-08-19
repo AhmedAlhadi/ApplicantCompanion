@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from ..evidence_citations import sanitize_prose_field
 
 # ── Career knowledge extraction (§6) ─────────────────────────────────────────
 
@@ -209,6 +211,91 @@ class JDPositionInfo(BaseModel):
     remote_policy: str = ""
     reporting_line: str = ""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        aliases = {
+            "title": "job_title", "position_title": "job_title",
+            "company": "organization", "organisation": "organization",
+            "grade": "grade_level", "employment_type": "contract_type",
+        }
+        for source, target in aliases.items():
+            if source in data and target not in data:
+                data[target] = data[source]
+        return data
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _normalize_nullable_strings(cls, value: Any) -> str:
+        return "" if value is None else str(value)
+
+
+class QualificationPredicate(BaseModel):
+    """One independently testable qualification fact.
+
+    Paths use ALL predicate semantics; a requirement uses ANY path semantics.
+    Unknown predicate kinds are rejected instead of guessed.
+    """
+
+    kind: Literal[
+        "degree_level", "relevant_experience", "education_field",
+        "certification", "language", "skill", "other",
+    ] = "other"
+    value: str = ""
+    minimum_level: str = ""
+    minimum_years: float | None = None
+    terms: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return {"kind": "other", "value": str(value)}
+        data = dict(value)
+        aliases = {
+            "type": "kind", "predicate_type": "kind", "degree": "minimum_level",
+            "degree_level": "minimum_level", "years": "minimum_years",
+            "min_years": "minimum_years", "keywords": "terms",
+        }
+        for source, target in aliases.items():
+            if source in data and target not in data:
+                data[target] = data[source]
+        kind_aliases = {
+            "degree": "degree_level", "education": "degree_level",
+            "experience": "relevant_experience", "years_experience": "relevant_experience",
+            "field": "education_field",
+        }
+        data["kind"] = kind_aliases.get(str(data.get("kind", "other")).lower(), data.get("kind", "other"))
+        return data
+
+    @field_validator("terms", mode="before")
+    @classmethod
+    def _normalize_terms(cls, value: Any) -> list[str]:
+        return _coerce_str_list(value)
+
+
+class QualificationPath(BaseModel):
+    """An alternative route to satisfying a requirement (predicates are ALL)."""
+
+    label: str = ""
+    predicates: list[QualificationPredicate] = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return {"predicates": value}
+        if not isinstance(value, dict):
+            return {"label": str(value), "predicates": []}
+        data = dict(value)
+        for alias in ("all", "conditions", "criteria"):
+            if alias in data and "predicates" not in data:
+                data["predicates"] = data[alias]
+        return data
+
 
 class JDRequirement(BaseModel):
     text: str
@@ -220,6 +307,53 @@ class JDRequirement(BaseModel):
     requirement_type: Literal["mandatory", "preferred", "responsibility", "competency"] = "mandatory"
     importance: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"] = "MEDIUM"
     keywords: list[str] = Field(default_factory=list)
+    qualification_paths: list[QualificationPath] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        """Conservatively accept common provider schema drift.
+
+        This only renames fields and wraps explicitly supplied alternatives;
+        it does not infer qualifications from arbitrary prose.
+        """
+        if isinstance(value, str):
+            return {"text": value}
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        for alias in ("description", "requirement", "name"):
+            if alias in data and "text" not in data:
+                data["text"] = data[alias]
+                break
+        if "type" in data and "requirement_type" not in data:
+            data["requirement_type"] = data["type"]
+        if "priority" in data and "importance" not in data:
+            data["importance"] = str(data["priority"]).upper()
+        if "importance" in data:
+            importance = str(data["importance"]).upper()
+            data["importance"] = importance or "MEDIUM"
+        category_aliases = {
+            "skill": "technical_skill", "skills": "technical_skill",
+            "technical": "technical_skill", "qualifications": "functional",
+        }
+        raw_category = str(data.get("category", "functional")).lower()
+        category = category_aliases.get(raw_category, raw_category)
+        data["category"] = category or "functional"
+        type_aliases = {"required": "mandatory", "essential": "mandatory", "desirable": "preferred"}
+        raw_req_type = str(data.get("requirement_type", "mandatory")).lower()
+        req_type = type_aliases.get(raw_req_type, raw_req_type)
+        data["requirement_type"] = req_type or "mandatory"
+        if "alternative_paths" in data and "qualification_paths" not in data:
+            data["qualification_paths"] = data["alternative_paths"]
+        if "qualification_paths" not in data:
+            alternatives = data.get("any_of") or data.get("alternatives")
+            if isinstance(alternatives, list):
+                data["qualification_paths"] = [
+                    item if isinstance(item, dict) and "predicates" in item else {"predicates": item if isinstance(item, list) else [item]}
+                    for item in alternatives
+                ]
+        return data
 
 
 class JDKeyword(BaseModel):
@@ -229,6 +363,33 @@ class JDKeyword(BaseModel):
         "behavioral", "tools", "methodologies", "certifications",
     ] = "technical"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return {"term": value}
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "term" not in data:
+            data["term"] = data.get("keyword") or data.get("name") or ""
+        classification_aliases = {
+            "technical_skill": "technical",
+            "skill": "technical",
+            "methodology": "methodologies",
+            "certification": "certifications",
+            "tool": "tools",
+        }
+        raw_classification = str(data.get("classification") or "").lower()
+        if raw_classification:
+            data["classification"] = classification_aliases.get(
+                raw_classification,
+                raw_classification,
+            )
+        if not data.get("classification"):
+            data["classification"] = "technical"
+        return data
+
 
 class JDAnalysisResult(BaseModel):
     position: JDPositionInfo = Field(default_factory=JDPositionInfo)
@@ -237,6 +398,48 @@ class JDAnalysisResult(BaseModel):
     competencies: list[str] = Field(default_factory=list)
     keywords: list[JDKeyword] = Field(default_factory=list)
     summary: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "position" not in data:
+            data["position"] = data.get("position_info") or data.get("job") or {}
+        if "requirements" not in data:
+            buckets = []
+            for key, req_type in (
+                ("mandatory_requirements", "mandatory"),
+                ("required_qualifications", "mandatory"),
+                ("preferred_requirements", "preferred"),
+                ("preferred_qualifications", "preferred"),
+            ):
+                for item in data.get(key, []) or []:
+                    normalized = dict(item) if isinstance(item, dict) else {"text": str(item)}
+                    normalized.setdefault("requirement_type", req_type)
+                    buckets.append(normalized)
+            data["requirements"] = buckets
+        elif isinstance(data["requirements"], dict):
+            flattened = []
+            for key, items in data["requirements"].items():
+                req_type = "preferred" if "prefer" in key.lower() or "desir" in key.lower() else "mandatory"
+                for item in items or []:
+                    normalized = dict(item) if isinstance(item, dict) else {"text": str(item)}
+                    normalized.setdefault("requirement_type", req_type)
+                    flattened.append(normalized)
+            data["requirements"] = flattened
+        if isinstance(data.get("keywords"), list):
+            data["keywords"] = [
+                {"term": item} if isinstance(item, str) else item
+                for item in data["keywords"]
+            ]
+        return data
+
+    @field_validator("responsibilities", "competencies", mode="before")
+    @classmethod
+    def _normalize_str_lists(cls, value: Any) -> list[str]:
+        return _coerce_str_list(value)
 
 
 # ── Research (§12-14) ────────────────────────────────────────────────────────
@@ -296,6 +499,7 @@ class RequirementMatchResult(BaseModel):
     explanation: str = ""
     confidence: float = 0.0
     match_kind: Literal["direct", "transferable"] = "direct"
+    qualification_evaluation: dict[str, Any] = Field(default_factory=dict)
 
 
 class MatchingResult(BaseModel):
@@ -333,11 +537,20 @@ class ApplicationStrategyResult(BaseModel):
 
 
 class CVBullet(BaseModel):
-    text: str
-    evidence_ids: list[str] = Field(default_factory=list)
+    text: str = Field(description="Visible bullet prose. Never include UUIDs or 'Evidence:' labels.")
+    evidence_ids: list[str] = Field(
+        default_factory=list,
+        description="Knowledge-base entity ids for the View Evidence UI. Not shown in the CV body.",
+    )
+
+    @model_validator(mode="after")
+    def _strip_inline_evidence(self):
+        self.text, self.evidence_ids = sanitize_prose_field(self.text, self.evidence_ids)
+        return self
 
 
 class CVExperienceEntry(BaseModel):
+    experience_id: str = Field(default="", description="Id of the source experience in the knowledge base.")
     organization: str
     job_title: str
     start_date: str = ""
@@ -362,12 +575,47 @@ class GeneratedCV(BaseModel):
     languages: list[dict] = Field(default_factory=list)
     additional_sections: list[CVSection] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _strip_summary_evidence(self):
+        self.summary, self.summary_evidence_ids = sanitize_prose_field(
+            self.summary, self.summary_evidence_ids
+        )
+        return self
+
+
+class CoverLetterParagraph(BaseModel):
+    text: str = Field(
+        description="Letter prose the employer reads. Never include UUIDs, evidence ids, or 'Evidence:' labels."
+    )
+    evidence_ids: list[str] = Field(
+        default_factory=list,
+        description="Knowledge-base entity ids supporting claims in this paragraph. Used only by View Evidence.",
+    )
+
+    @model_validator(mode="after")
+    def _strip_inline_evidence(self):
+        self.text, self.evidence_ids = sanitize_prose_field(self.text, self.evidence_ids)
+        return self
+
 
 class GeneratedCoverLetter(BaseModel):
     subject: str = ""
     salutation: str = "Dear Hiring Manager,"
-    paragraphs: list[dict] = Field(default_factory=list)  # {text, evidence_ids}
+    paragraphs: list[CoverLetterParagraph] = Field(default_factory=list)
     closing: str = "Sincerely,"
+
+    @field_validator("paragraphs", mode="before")
+    @classmethod
+    def _coerce_paragraphs(cls, value):
+        if not isinstance(value, list):
+            return value
+        coerced = []
+        for item in value:
+            if isinstance(item, str):
+                coerced.append({"text": item, "evidence_ids": []})
+            else:
+                coerced.append(item)
+        return coerced
 
 
 # ── ATS analysis (§25) ───────────────────────────────────────────────────────

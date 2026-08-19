@@ -11,6 +11,9 @@ import json
 import re
 from collections import Counter
 
+from ..qualification import degree_level, evaluate_qualification_paths
+from ..services.document_postprocess import relevance_terms, relevant_bullets_for_experience
+
 # ── shared helpers ───────────────────────────────────────────────────────────
 
 STOPWORDS = {
@@ -571,6 +574,170 @@ def _req_keywords(text: str) -> list[str]:
     return found[:8]
 
 
+_YEAR_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20,
+}
+
+_DEGREE_RE = re.compile(
+    r"\b("
+    r"phd|doctor(?:al|ate)?|"
+    r"master'?s?|mba|advanced(?:\s+university)?\s+degree|"
+    r"bachelor'?s?|undergraduate|"
+    r"first[- ]level\s+university(?:\s+degree)?|"
+    r"first\s+university\s+degree|"
+    r"university\s+degree|"
+    r"associate|"
+    r"high\s+school(?:\s+diploma)?|"
+    r"secondary(?:\s+school)?(?:\s+(?:degree|diploma|education))?|"
+    r"diploma"
+    r")\b",
+    re.I,
+)
+
+_YEAR_TOKEN = r"\d+(?:\.\d+)?|" + "|".join(_YEAR_WORDS)
+_YEAR_RE = re.compile(
+    rf"(?:(?:(?P<n1>{_YEAR_TOKEN})\s+)?additional\s+(?:(?P<n2>{_YEAR_TOKEN})\s+)?years?"
+    rf"|(?:minimum\s+|at\s+least\s+)?(?P<n3>{_YEAR_TOKEN})\+?\s+years?)",
+    re.I,
+)
+
+_ALT_MARKERS_RE = re.compile(
+    r"\b(?:or|alternatively|in lieu of|may be accepted|equivalent combination)\b",
+    re.I,
+)
+_ALT_SPLIT_RE = re.compile(
+    r"\s*(?:,?\s*\bor\b|,?\s*\balternatively\b|(?<=\.)\s+|;\s*)\s*",
+    re.I,
+)
+_EDU_TERM_STOP = {
+    "relevant", "experience", "degree", "university", "bachelor", "master",
+    "phd", "doctorate", "secondary", "school", "diploma", "education",
+    "advanced", "equivalent",
+}
+
+
+def _parse_year_token(token: str | None) -> float | None:
+    if not token:
+        return None
+    lowered = token.lower()
+    if lowered in _YEAR_WORDS:
+        return float(_YEAR_WORDS[lowered])
+    try:
+        return float(lowered)
+    except ValueError:
+        return None
+
+
+def _canonical_degree_level(text: str) -> str:
+    rank = degree_level(text)
+    lowered = text.lower()
+    if rank >= 5:
+        return "phd"
+    if rank == 4:
+        return "master"
+    if rank == 3:
+        return "bachelor"
+    if rank == 2:
+        return "associate" if "associate" in lowered else "diploma"
+    if rank == 1:
+        return "secondary"
+    return ""
+
+
+def _clause_degree(text: str) -> str:
+    match = _DEGREE_RE.search(text)
+    return _canonical_degree_level(match.group(1)) if match else ""
+
+
+def _clause_years(text: str) -> tuple[float | None, bool]:
+    match = _YEAR_RE.search(text)
+    if not match:
+        return None, False
+    additional = "additional" in match.group(0).lower()
+    for key in ("n1", "n2", "n3"):
+        parsed = _parse_year_token(match.group(key))
+        if parsed is not None:
+            return parsed, additional
+    return None, False
+
+
+def _experience_predicate(years: float, text: str) -> dict:
+    terms = [term for term in _req_keywords(text) if term not in _EDU_TERM_STOP]
+    return {
+        "kind": "relevant_experience",
+        "minimum_years": years,
+        "value": "",
+        "terms": terms,
+    }
+
+
+def _degree_predicate(level: str) -> dict:
+    return {
+        "kind": "degree_level",
+        "minimum_level": level,
+        "value": "",
+        "terms": [],
+    }
+
+
+def _route_label(level: str, years: float | None) -> str:
+    if level and years is not None:
+        return f"{level.title()} plus experience route"
+    if level:
+        return f"{level.title()} route"
+    return "Experience route"
+
+
+def _qualification_paths(text: str) -> list[dict]:
+    """Extract only explicit degree/years predicates from qualification prose."""
+    protected = re.sub(r"\bor equivalent\b", " equivalent", text.replace("’", "'"), flags=re.I)
+    has_alternative = bool(_ALT_MARKERS_RE.search(protected))
+    stripped = re.sub(r"\bin lieu of\b.*", "", protected, flags=re.I)
+    clauses = (
+        [part.strip(" ,.") for part in _ALT_SPLIT_RE.split(stripped) if part.strip(" ,.")]
+        if has_alternative
+        else [stripped.strip(" ,.")]
+    )
+
+    parsed: list[dict] = []
+    for clause in clauses:
+        clause = re.sub(r"\bmay (?:also )?be accepted\b.*", "", clause, flags=re.I).strip(" ,.")
+        if not clause:
+            continue
+        level = _clause_degree(clause)
+        years, additional = _clause_years(clause)
+        if not level and years is None:
+            continue
+        parsed.append({"level": level, "years": years, "additional": additional, "clause": clause})
+    if not parsed:
+        return []
+
+    baseline = next(
+        (item["years"] for item in parsed if item["years"] is not None and not item["additional"]),
+        None,
+    )
+    routes: list[dict] = []
+    seen_levels: set[str] = set()
+    for item in parsed:
+        years = item["years"]
+        if years is not None and item["additional"]:
+            years = (baseline or 0.0) + years
+        if item["level"] and item["level"] in seen_levels:
+            continue
+        if item["level"]:
+            seen_levels.add(item["level"])
+        predicates = []
+        if item["level"]:
+            predicates.append(_degree_predicate(item["level"]))
+        if years is not None:
+            predicates.append(_experience_predicate(years, item["clause"]))
+        if predicates:
+            routes.append({"label": _route_label(item["level"], years), "predicates": predicates})
+    return routes[:3] if has_alternative else routes[:1]
+
+
 def mock_jd_analysis(user_message: str) -> dict:
     jd = _extract_tag(user_message, "job_description") or user_message
     lines = [ln.rstrip() for ln in jd.splitlines()]
@@ -621,13 +788,6 @@ def mock_jd_analysis(user_message: str) -> dict:
 
         if section == "responsibilities" and (is_bullet or len(stripped) > 30):
             responsibilities.append(bullet)
-            requirements.append({
-                "text": bullet,
-                "category": "responsibility",
-                "requirement_type": "responsibility",
-                "importance": "MEDIUM",
-                "keywords": _req_keywords(bullet),
-            })
         elif section in ("requirements", "preferred") and (is_bullet or len(stripped) > 30):
             req_type = "preferred" if (section == "preferred" or _PREFERRED_HINTS.search(bullet)) else "mandatory"
             requirements.append({
@@ -636,6 +796,7 @@ def mock_jd_analysis(user_message: str) -> dict:
                 "requirement_type": req_type,
                 "importance": "",  # filled below once title is known
                 "keywords": _req_keywords(bullet),
+                "qualification_paths": _qualification_paths(bullet),
             })
         elif section == "education" and (is_bullet or len(stripped) > 20):
             requirements.append({
@@ -644,6 +805,7 @@ def mock_jd_analysis(user_message: str) -> dict:
                 "requirement_type": "preferred" if _PREFERRED_HINTS.search(bullet) else "mandatory",
                 "importance": "",
                 "keywords": [],
+                "qualification_paths": _qualification_paths(bullet),
             })
 
     if not position["job_title"] and first_text_line:
@@ -807,12 +969,46 @@ def mock_candidate_matching(user_message: str) -> dict:
     payload = _extract_json_block(user_message)
     requirements = payload.get("requirements", [])
     evidence = payload.get("evidence", [])
-    ev_tokens = [(ev, content_tokens(ev.get("text", ""))) for ev in evidence]
+    evidence_by_requirement = payload.get("evidence_by_requirement", {})
+    structured_facts = payload.get("structured_facts", {})
 
     matches = []
     for req in requirements:
+        req_evidence = evidence_by_requirement.get(req.get("id", ""), evidence)
+        ev_tokens = [(ev, content_tokens(ev.get("text", ""))) for ev in req_evidence]
+        evaluation = evaluate_qualification_paths(
+            req.get("qualification_paths", []),
+            structured_facts.get(req.get("id", ""), structured_facts),
+        )
+        if evaluation:
+            evidence_by_id = {ev.get("entity_id"): ev for ev in req_evidence}
+            supporting = [
+                {
+                    "entity_type": evidence_by_id[eid].get("entity_type", ""),
+                    "entity_id": eid,
+                    "evidence": evidence_by_id[eid].get("text", "")[:300],
+                    "source": evidence_by_id[eid].get("verification_status", ""),
+                }
+                for eid in evaluation.get("evidence_ids", [])
+                if eid in evidence_by_id
+            ]
+            status = evaluation["status"]
+            matches.append({
+                "requirement_id": req.get("id", ""),
+                "status": status,
+                "evidence": supporting,
+                "explanation": (
+                    "Satisfied an alternative qualification path."
+                    if status == "MATCHED"
+                    else "Structured qualification paths were evaluated deterministically."
+                ),
+                "confidence": 0.95 if status != "UNKNOWN" else 0.0,
+                "match_kind": "direct",
+                "qualification_evaluation": evaluation,
+            })
+            continue
         req_toks = content_tokens(req.get("text", ""))
-        if not evidence:
+        if not req_evidence:
             matches.append({
                 "requirement_id": req.get("id", ""),
                 "status": "UNKNOWN",
@@ -820,6 +1016,7 @@ def mock_candidate_matching(user_message: str) -> dict:
                 "explanation": "No career evidence available to evaluate this requirement.",
                 "confidence": 0.0,
                 "match_kind": "direct",
+                "qualification_evaluation": {},
             })
             continue
         scored = sorted(
@@ -863,6 +1060,7 @@ def mock_candidate_matching(user_message: str) -> dict:
             "explanation": expl,
             "confidence": round(conf, 2),
             "match_kind": kind,
+            "qualification_evaluation": {},
         })
     return {"matches": matches}
 
@@ -978,34 +1176,48 @@ def mock_cv_generation(user_message: str) -> dict:
     languages = payload.get("languages", [])
     strategy = payload.get("strategy", {})
 
-    priority_ids = strategy.get("priority_experience", [])
+    priority_ids = set(strategy.get("priority_experience") or [])
+    de_emphasis = set(strategy.get("de_emphasis") or [])
     priority_skills = [s.lower() for s in strategy.get("priority_skills", [])]
+    terms = relevance_terms(job, strategy, payload.get("matches") or [])
 
-    def exp_rank(e):
-        return (0 if e.get("id") in priority_ids else 1, -(priority_ids.index(e["id"]) if e.get("id") in priority_ids else 0), e.get("start_date") or "")
+    def date_key(e):
+        return (e.get("end_date") or "9999-12", e.get("start_date") or "0000-00")
 
-    ordered_exp = sorted(experiences, key=exp_rank, reverse=True)
+    ordered_exp = sorted(experiences, key=date_key, reverse=True)
 
     exp_entries = []
     for e in ordered_exp:
-        bullets = []
-        for ach in e.get("achievements", []):
-            if isinstance(ach, dict):
-                text = ach.get("description", "")
-                eid = ach.get("id", e.get("id", ""))
-            else:
-                text, eid = str(ach), e.get("id", "")
-            if text:
-                bullets.append({"text": text, "evidence_ids": [eid]})
-        for resp in e.get("responsibilities", [])[:6]:
-            bullets.append({"text": resp, "evidence_ids": [e.get("id", "")]})
+        exp_id = e.get("id", "")
+        if exp_id in de_emphasis:
+            limit = 2
+        elif exp_id in priority_ids:
+            limit = 6
+        else:
+            limit = 4
+        if terms:
+            bullets = relevant_bullets_for_experience(e, terms, max_bullets=limit)
+        else:
+            bullets = []
+            for ach in e.get("achievements", []):
+                if isinstance(ach, dict):
+                    text = ach.get("description", "")
+                    eid = ach.get("id", exp_id)
+                else:
+                    text, eid = str(ach), exp_id
+                if text:
+                    bullets.append({"text": text, "evidence_ids": [eid] if eid else []})
+            for resp in e.get("responsibilities", [])[:limit]:
+                bullets.append({"text": resp, "evidence_ids": [exp_id] if exp_id else []})
+            bullets = bullets[:limit]
         exp_entries.append({
+            "experience_id": exp_id,
             "organization": e.get("organization", ""),
             "job_title": e.get("job_title", ""),
             "start_date": e.get("start_date", "") or "",
             "end_date": e.get("end_date", "") or "Present",
             "location": e.get("location", ""),
-            "bullets": bullets[:8],
+            "bullets": bullets,
         })
 
     def skill_rank(s):

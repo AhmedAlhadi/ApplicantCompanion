@@ -1,0 +1,7 @@
+Write the cover letter. Put supporting knowledge-base ids only in each paragraph's evidence_ids array. Never write ids, UUIDs, or the word "Evidence" in the letter text.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

@@ -20,6 +20,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     bind_loop(asyncio.get_running_loop())
+    jobs.reconcile_stale_analysis_runs()
     yield
 
 

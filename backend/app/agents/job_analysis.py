@@ -13,6 +13,8 @@ class JobAnalysisAgent(BaseAgent):
     task = "extraction"
     prompt_name = "jd_analysis"
     output_model = JDAnalysisResult
+    validation_retries = 2
+    max_tokens = 8192
 
     def build_user_message(self, *, jd_text: str, **_) -> str:
         safe_jd = sanitize_untrusted(jd_text)

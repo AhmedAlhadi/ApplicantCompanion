@@ -5,12 +5,15 @@ import type {
   CareerCertification,
   CareerEducation,
   CareerExperience,
+  CareerProfile,
   CareerProject,
   CareerSkill,
 } from "../api/types";
+import { CareerEvolution } from "./CareerEvolution";
 import { Empty, useApi } from "./ui";
 
 export type CareerTabKey =
+  | "profile"
   | "experience"
   | "projects"
   | "achievements"
@@ -18,26 +21,24 @@ export type CareerTabKey =
   | "education"
   | "certifications";
 
-type NodeType = CareerTabKey;
+type NodeType = "profile" | "experience" | "projects" | "skills" | "technology";
 
 type GraphNode = {
   id: string;
   type: NodeType;
   label: string;
   sub: string;
-  cluster: string;
   status: string;
-  r: number;
+  w: number;
+  h: number;
   x: number;
   y: number;
-  vx: number;
-  vy: number;
 };
 
 type GraphEdge = {
   source: string;
   target: string;
-  kind: "parent" | "skill";
+  kind: "strong" | "related";
 };
 
 type CareerBundle = {
@@ -50,40 +51,44 @@ type CareerBundle = {
 };
 
 const TYPE_COLOR: Record<NodeType, string> = {
+  profile: "#7ea6ff",
   experience: "#5b8cff",
   projects: "#37c2a0",
-  achievements: "#43c97e",
-  skills: "#8b95b3",
-  education: "#e0a84f",
-  certifications: "#c084fc",
+  skills: "#a78bfa",
+  technology: "#f0a04b",
 };
 
 const TYPE_LABEL: Record<NodeType, string> = {
+  profile: "You",
   experience: "Role",
   projects: "Project",
-  achievements: "Achievement",
   skills: "Skill",
-  education: "Education",
-  certifications: "Certification",
+  technology: "Technology",
 };
 
-const FILTER_LABEL: Record<NodeType, string> = {
+const FILTER_LABEL: Record<Exclude<NodeType, "profile">, string> = {
   experience: "Roles",
   projects: "Projects",
-  achievements: "Achievements",
   skills: "Skills",
-  education: "Education",
-  certifications: "Certifications",
+  technology: "Technologies",
 };
 
-const DEFAULT_VISIBLE: Record<NodeType, boolean> = {
+const DEFAULT_VISIBLE: Record<Exclude<NodeType, "profile">, boolean> = {
   experience: true,
   projects: true,
-  achievements: true,
   skills: true,
-  education: true,
-  certifications: true,
+  technology: true,
 };
+
+const CARD: Record<NodeType, { w: number; h: number }> = {
+  profile: { w: 220, h: 64 },
+  experience: { w: 168, h: 54 },
+  projects: { w: 156, h: 50 },
+  skills: { w: 150, h: 50 },
+  technology: { w: 108, h: 34 },
+};
+
+const LAYOUT = { width: 1120, height: 620 };
 
 function norm(s: string) {
   return s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, " ").trim();
@@ -94,252 +99,178 @@ function dateRange(start?: string | null, end?: string | null) {
   return [start, end || "Present"].filter(Boolean).join(" – ");
 }
 
-function statusStroke(status: string) {
-  if (status === "verified") return "#43c97e";
-  if (status === "needs_review") return "#5b8cff";
-  if (status === "unverified") return "#e0a84f";
-  return "#2a3554";
+function shorten(value: string, n: number) {
+  const text = value.trim();
+  return text.length > n ? `${text.slice(0, n - 1)}…` : text;
 }
 
 function skillKeys(skill: CareerSkill) {
   return [skill.name, skill.canonical_name, ...(skill.synonyms || [])].map(norm).filter(Boolean);
 }
 
-function buildGraph(bundle: CareerBundle): { nodes: GraphNode[]; edges: GraphEdge[] } {
+function spread(count: number, start: number, end: number) {
+  if (count <= 0) return [];
+  if (count === 1) return [(start + end) / 2];
+  return Array.from({ length: count }, (_, i) => start + (i * (end - start)) / (count - 1));
+}
+
+function addNode(nodes: GraphNode[], seen: Set<string>, node: Omit<GraphNode, "x" | "y">) {
+  if (seen.has(node.id)) return;
+  seen.add(node.id);
+  nodes.push({ ...node, x: 0, y: 0 });
+}
+
+function addEdge(edges: GraphEdge[], source: string, target: string, kind: GraphEdge["kind"]) {
+  if (!source || !target || source === target) return;
+  if (edges.some((e) => e.source === source && e.target === target && e.kind === kind)) return;
+  edges.push({ source, target, kind });
+}
+
+function buildGraph(bundle: CareerBundle, profile: CareerProfile | null): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seen = new Set<string>();
-
-  const addNode = (node: Omit<GraphNode, "x" | "y" | "vx" | "vy">) => {
-    if (seen.has(node.id)) return;
-    seen.add(node.id);
-    nodes.push({ ...node, x: 0, y: 0, vx: 0, vy: 0 });
-  };
-  const addEdge = (source: string, target: string, kind: GraphEdge["kind"]) => {
-    if (!source || !target || source === target) return;
-    edges.push({ source, target, kind });
-  };
-
-  const expCluster = (exp: CareerExperience) => (exp.domains || []).map((d) => d.trim()).find(Boolean) || "General";
   const expById = Object.fromEntries(bundle.experiences.map((e) => [e.id, e]));
-  const projById = Object.fromEntries(bundle.projects.map((p) => [p.id, p]));
 
-  for (const exp of bundle.experiences) {
-    addNode({
+  addNode(nodes, seen, {
+    id: "profile:self",
+    type: "profile",
+    label: profile?.full_name || "Your Career",
+    sub: profile?.headline || "Career knowledge graph",
+    status: "",
+    ...CARD.profile,
+  });
+
+  const roles = [...bundle.experiences]
+    .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || ""))
+    .slice(0, 6);
+  for (const exp of roles) {
+    addNode(nodes, seen, {
       id: `experience:${exp.id}`,
       type: "experience",
       label: exp.job_title || exp.organization,
-      sub: [exp.organization, dateRange(exp.start_date, exp.end_date)].filter(Boolean).join(" · "),
-      cluster: expCluster(exp),
+      sub: exp.organization,
       status: exp.verification_status || "",
-      r: 16,
+      ...CARD.experience,
     });
+    addEdge(edges, "profile:self", `experience:${exp.id}`, "strong");
   }
 
-  for (const proj of bundle.projects) {
-    const parent = proj.experience_id ? expById[proj.experience_id] : null;
-    addNode({
+  const projects = bundle.projects.slice(0, 8);
+  for (const proj of projects) {
+    addNode(nodes, seen, {
       id: `project:${proj.id}`,
       type: "projects",
       label: proj.name,
-      sub: proj.role || (parent ? parent.job_title : "Independent"),
-      cluster: parent ? expCluster(parent) : "Independent",
+      sub: proj.role || (proj.experience_id && expById[proj.experience_id]?.organization) || "Project",
       status: proj.verification_status || "",
-      r: 12,
+      ...CARD.projects,
     });
-    if (proj.experience_id) addEdge(`project:${proj.id}`, `experience:${proj.experience_id}`, "parent");
+    addEdge(edges, "profile:self", `project:${proj.id}`, "related");
+    if (proj.experience_id && seen.has(`experience:${proj.experience_id}`)) {
+      addEdge(edges, `project:${proj.id}`, `experience:${proj.experience_id}`, "strong");
+    }
   }
 
-  for (const ach of bundle.achievements) {
-    const parentExp = ach.experience_id ? expById[ach.experience_id] : null;
-    const parentProj = ach.project_id ? projById[ach.project_id] : null;
-    const cluster = parentExp
-      ? expCluster(parentExp)
-      : parentProj?.experience_id && expById[parentProj.experience_id]
-        ? expCluster(expById[parentProj.experience_id])
-        : ach.education_id
-          ? "Education"
-          : "Unlinked";
-    addNode({
-      id: `achievement:${ach.id}`,
-      type: "achievements",
-      label: ach.title || ach.description.slice(0, 48) || "Achievement",
-      sub: ach.quantified_result || "",
-      cluster,
-      status: ach.verification_status || "",
-      r: 10,
-    });
-    if (ach.experience_id) addEdge(`achievement:${ach.id}`, `experience:${ach.experience_id}`, "parent");
-    if (ach.project_id) addEdge(`achievement:${ach.id}`, `project:${ach.project_id}`, "parent");
-    if (ach.education_id) addEdge(`achievement:${ach.id}`, `education:${ach.education_id}`, "parent");
-  }
-
-  for (const edu of bundle.education) {
-    addNode({
-      id: `education:${edu.id}`,
-      type: "education",
-      label: [edu.degree, edu.field_of_study].filter(Boolean).join(" ") || edu.institution,
-      sub: edu.institution,
-      cluster: "Education",
-      status: edu.verification_status || "",
-      r: 11,
-    });
-  }
-
-  for (const cert of bundle.certifications) {
-    addNode({
-      id: `certification:${cert.id}`,
-      type: "certifications",
-      label: cert.name,
-      sub: cert.issuer,
-      cluster: "Credentials",
-      status: cert.verification_status || "",
-      r: 11,
-    });
-  }
-
+  const rankedSkills = [...bundle.skills]
+    .sort((a, b) => (b.evidence_count || 0) - (a.evidence_count || 0))
+    .slice(0, 8);
   const skillIdByKey = new Map<string, string>();
-  for (const skill of bundle.skills) {
+  for (const skill of rankedSkills) {
     const id = `skill:${skill.id}`;
-    addNode({
+    addNode(nodes, seen, {
       id,
       type: "skills",
       label: skill.canonical_name || skill.name,
-      sub: [skill.category, skill.proficiency].filter(Boolean).join(" · "),
-      cluster: skill.category || "Skills",
+      sub: [skill.proficiency, skill.category].filter(Boolean).join(" · "),
       status: skill.verification_status || "",
-      r: 8 + Math.min(skill.evidence_count || 0, 4),
+      ...CARD.skills,
     });
+    addEdge(edges, "profile:self", id, "related");
     for (const key of skillKeys(skill)) skillIdByKey.set(key, id);
   }
 
-  const topicId = (term: string) => `topic:${norm(term)}`;
-  const ensureTopic = (term: string, cluster: string) => {
-    const key = norm(term);
-    if (!key) return null;
-    const existing = skillIdByKey.get(key);
-    if (existing) return existing;
-    const id = topicId(term);
-    addNode({
-      id,
-      type: "skills",
-      label: term,
-      sub: "from a role or achievement",
-      cluster,
-      status: "",
-      r: 7,
-    });
-    skillIdByKey.set(key, id);
-    return id;
-  };
-
-  for (const exp of bundle.experiences) {
-    const cluster = expCluster(exp);
-    for (const term of [...(exp.technologies || []), ...(exp.domains || [])]) {
-      const sid = ensureTopic(term, cluster);
-      if (sid) addEdge(sid, `experience:${exp.id}`, "skill");
-    }
-  }
-  for (const proj of bundle.projects) {
-    const parent = proj.experience_id ? expById[proj.experience_id] : null;
-    const cluster = parent ? expCluster(parent) : "Independent";
-    for (const term of proj.technologies || []) {
-      const sid = ensureTopic(term, cluster);
-      if (sid) addEdge(sid, `project:${proj.id}`, "skill");
-    }
-  }
   for (const ach of bundle.achievements) {
     for (const term of ach.skills || []) {
-      const sid = ensureTopic(term, ach.experience_id && expById[ach.experience_id] ? expCluster(expById[ach.experience_id]) : "Skills");
-      if (sid) addEdge(sid, `achievement:${ach.id}`, "skill");
-    }
-  }
-
-  const connected = new Set<string>();
-  for (const e of edges) {
-    connected.add(e.source);
-    connected.add(e.target);
-  }
-  const keptNodes = nodes.filter((n) => n.type !== "skills" || connected.has(n.id) || (bundle.skills.length > 0 && n.id.startsWith("skill:")));
-  const keptIds = new Set(keptNodes.map((n) => n.id));
-  return {
-    nodes: keptNodes,
-    edges: edges.filter((e) => keptIds.has(e.source) && keptIds.has(e.target)),
-  };
-}
-
-function simulate(nodes: GraphNode[], edges: GraphEdge[], ticks = 240) {
-  const n = nodes.length;
-  if (!n) return;
-  const clusters = [...new Set(nodes.map((d) => d.cluster))];
-  clusters.forEach((cluster, i) => {
-    const members = nodes.filter((d) => d.cluster === cluster);
-    const angle = (i / Math.max(clusters.length, 1)) * Math.PI * 2;
-    const cx = 420 + Math.cos(angle) * 210;
-    const cy = 300 + Math.sin(angle) * 160;
-    members.forEach((d, j) => {
-      const a = (j / Math.max(members.length, 1)) * Math.PI * 2;
-      d.x = cx + Math.cos(a) * (28 + members.length);
-      d.y = cy + Math.sin(a) * (28 + members.length);
-      d.vx = 0;
-      d.vy = 0;
-    });
-  });
-
-  const index = Object.fromEntries(nodes.map((d, i) => [d.id, i]));
-  for (let t = 0; t < ticks; t++) {
-    const alpha = 1 - t / ticks;
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        let dx = nodes[j].x - nodes[i].x;
-        let dy = nodes[j].y - nodes[i].y;
-        const dist2 = dx * dx + dy * dy || 0.01;
-        const dist = Math.sqrt(dist2);
-        const force = (1100 * alpha) / dist2;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        nodes[i].vx -= fx;
-        nodes[i].vy -= fy;
-        nodes[j].vx += fx;
-        nodes[j].vy += fy;
+      const sid = skillIdByKey.get(norm(term));
+      if (!sid) continue;
+      if (ach.experience_id && seen.has(`experience:${ach.experience_id}`)) {
+        addEdge(edges, sid, `experience:${ach.experience_id}`, "related");
+      }
+      if (ach.project_id && seen.has(`project:${ach.project_id}`)) {
+        addEdge(edges, sid, `project:${ach.project_id}`, "strong");
       }
     }
-    for (const e of edges) {
-      const a = nodes[index[e.source]];
-      const b = nodes[index[e.target]];
-      if (!a || !b) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const rest = e.kind === "skill" ? 96 : 72;
-      const f = (dist - rest) * 0.085 * alpha;
-      const fx = (dx / dist) * f;
-      const fy = (dy / dist) * f;
-      a.vx += fx;
-      a.vy += fy;
-      b.vx -= fx;
-      b.vy -= fy;
-    }
-    const centroids = new Map<string, { x: number; y: number; n: number }>();
-    for (const d of nodes) {
-      const c = centroids.get(d.cluster) || { x: 0, y: 0, n: 0 };
-      c.x += d.x;
-      c.y += d.y;
-      c.n += 1;
-      centroids.set(d.cluster, c);
-    }
-    for (const d of nodes) {
-      const c = centroids.get(d.cluster)!;
-      d.vx += ((c.x / c.n) - d.x) * 0.012;
-      d.vy += ((c.y / c.n) - d.y) * 0.012;
-      d.vx += (420 - d.x) * 0.004;
-      d.vy += (300 - d.y) * 0.004;
-      d.vx *= 0.72;
-      d.vy *= 0.72;
-      d.x += d.vx;
-      d.y += d.vy;
+  }
+
+  const techCount = new Map<string, { label: string; count: number; links: { id: string; kind: GraphEdge["kind"] }[] }>();
+  const bumpTech = (term: string, linkId: string, kind: GraphEdge["kind"]) => {
+    const key = norm(term);
+    if (!key || skillIdByKey.has(key)) return;
+    const current = techCount.get(key) || { label: term, count: 0, links: [] };
+    current.count += 1;
+    current.links.push({ id: linkId, kind });
+    techCount.set(key, current);
+  };
+  for (const exp of roles) {
+    for (const term of exp.technologies || []) bumpTech(term, `experience:${exp.id}`, "related");
+  }
+  for (const proj of projects) {
+    for (const term of proj.technologies || []) bumpTech(term, `project:${proj.id}`, "strong");
+  }
+
+  const techs = [...techCount.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 8);
+  for (const [key, tech] of techs) {
+    const id = `tech:${key}`;
+    addNode(nodes, seen, {
+      id,
+      type: "technology",
+      label: tech.label,
+      sub: tech.count > 1 ? `${tech.count} links` : "",
+      status: "",
+      ...CARD.technology,
+    });
+    for (const link of tech.links) {
+      if (seen.has(link.id)) addEdge(edges, id, link.id, link.kind);
     }
   }
+
+  return { nodes, edges };
+}
+
+function layoutHubSpoke(nodes: GraphNode[]) {
+  const { width, height } = LAYOUT;
+  const cx = width / 2;
+  const cy = height / 2 + 8;
+  const hub = nodes.find((n) => n.type === "profile");
+  if (hub) {
+    hub.x = cx;
+    hub.y = cy;
+  }
+
+  const roles = nodes.filter((n) => n.type === "experience");
+  const projects = nodes.filter((n) => n.type === "projects");
+  const skills = nodes.filter((n) => n.type === "skills");
+  const techs = nodes.filter((n) => n.type === "technology");
+
+  spread(roles.length, 150, height - 150).forEach((y, i) => {
+    roles[i].x = 128;
+    roles[i].y = y;
+  });
+  spread(projects.length, 250, width - 250).forEach((x, i) => {
+    projects[i].x = x;
+    projects[i].y = 78;
+  });
+  spread(skills.length, 150, height - 150).forEach((y, i) => {
+    skills[i].x = width - 128;
+    skills[i].y = y;
+  });
+  spread(techs.length, 250, width - 250).forEach((x, i) => {
+    techs[i].x = x;
+    techs[i].y = height - 70;
+  });
 }
 
 function fitTransform(nodes: GraphNode[], width: number, height: number) {
@@ -349,20 +280,26 @@ function fitTransform(nodes: GraphNode[], width: number, height: number) {
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (const n of nodes) {
-    minX = Math.min(minX, n.x - n.r);
-    minY = Math.min(minY, n.y - n.r);
-    maxX = Math.max(maxX, n.x + n.r);
-    maxY = Math.max(maxY, n.y + n.r);
+    minX = Math.min(minX, n.x - n.w / 2);
+    minY = Math.min(minY, n.y - n.h / 2);
+    maxX = Math.max(maxX, n.x + n.w / 2);
+    maxY = Math.max(maxY, n.y + n.h / 2);
   }
-  const pad = 56;
+  const pad = 48;
   const gw = Math.max(maxX - minX, 1);
   const gh = Math.max(maxY - minY, 1);
-  const k = Math.min(width / (gw + pad * 2), height / (gh + pad * 2), 1.35);
+  const k = Math.min(width / (gw + pad * 2), height / (gh + pad * 2), 1.2);
   return {
     k,
     x: (width - gw * k) / 2 - minX * k,
     y: (height - gh * k) / 2 - minY * k,
   };
+}
+
+function tabFor(type: NodeType): CareerTabKey {
+  if (type === "profile") return "profile";
+  if (type === "technology") return "skills";
+  return type;
 }
 
 export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) => void }) {
@@ -377,10 +314,12 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
     ]);
     return { experiences, projects, achievements, skills, education, certifications };
   });
+  const profile = useApi<CareerProfile>(() => api.get("/api/career/profile"));
 
   const [visible, setVisible] = useState(DEFAULT_VISIBLE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
@@ -390,38 +329,28 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
   const stats = useMemo(() => {
     const b = bundle.data;
     if (!b) return null;
-    const allStatus = [
-      ...b.experiences,
-      ...b.projects,
-      ...b.achievements,
-      ...b.skills,
-      ...b.education,
-      ...b.certifications,
-    ];
-    const verified = allStatus.filter((x) => x.verification_status === "verified").length;
     return {
       experiences: b.experiences.length,
       projects: b.projects.length,
-      achievements: b.achievements.length,
       skills: b.skills.length,
-      verified,
-      total: allStatus.length,
-      orphans: b.achievements.filter((a) => !a.experience_id && !a.project_id && !a.education_id).length,
+      techs: new Set([
+        ...b.experiences.flatMap((e) => e.technologies || []),
+        ...b.projects.flatMap((p) => p.technologies || []),
+      ]).size,
+      total: b.experiences.length + b.projects.length + b.skills.length,
     };
   }, [bundle.data]);
 
   useEffect(() => {
     if (!bundle.data) return;
-    const graph = buildGraph(bundle.data);
-    simulate(graph.nodes, graph.edges);
+    const graph = buildGraph(bundle.data, profile.data);
+    layoutHubSpoke(graph.nodes);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     const svg = svgRef.current;
-    const width = svg?.clientWidth || 960;
-    const height = svg?.clientHeight || 520;
-    setTransform(fitTransform(graph.nodes, width, height));
+    setTransform(fitTransform(graph.nodes, svg?.clientWidth || 960, svg?.clientHeight || 560));
     setSelectedId(null);
-  }, [bundle.data]);
+  }, [bundle.data, profile.data]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -445,7 +374,14 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
     return () => svg.removeEventListener("wheel", onWheel);
   }, [nodes.length]);
 
-  const shownNodes = useMemo(() => nodes.filter((n) => visible[n.type]), [nodes, visible]);
+  const shownNodes = useMemo(() => {
+    const q = norm(query);
+    return nodes.filter((n) => {
+      if (n.type !== "profile" && !visible[n.type]) return false;
+      if (!q) return true;
+      return norm(`${n.label} ${n.sub}`).includes(q);
+    });
+  }, [nodes, visible, query]);
   const shownIds = useMemo(() => new Set(shownNodes.map((n) => n.id)), [shownNodes]);
   const shownEdges = useMemo(
     () => edges.filter((e) => shownIds.has(e.source) && shownIds.has(e.target)),
@@ -453,18 +389,15 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
   );
   const nodeById = useMemo(() => Object.fromEntries(shownNodes.map((n) => [n.id, n])), [shownNodes]);
   const selected = selectedId ? nodeById[selectedId] || nodes.find((n) => n.id === selectedId) : null;
-
-  const clusterLabels = useMemo(() => {
-    const groups = new Map<string, { x: number; y: number; n: number }>();
-    for (const n of shownNodes) {
-      const g = groups.get(n.cluster) || { x: 0, y: 0, n: 0 };
-      g.x += n.x;
-      g.y += n.y;
-      g.n += 1;
-      groups.set(n.cluster, g);
+  const activeIds = useMemo(() => {
+    if (!selectedId) return new Set<string>();
+    const next = new Set<string>([selectedId]);
+    for (const e of shownEdges) {
+      if (e.source === selectedId) next.add(e.target);
+      if (e.target === selectedId) next.add(e.source);
     }
-    return [...groups.entries()].map(([label, g]) => ({ label, x: g.x / g.n, y: g.y / g.n - 28 }));
-  }, [shownNodes]);
+    return next;
+  }, [selectedId, shownEdges]);
 
   const pointer = (e: React.PointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -490,8 +423,18 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
     }
   };
 
-  const toggleType = (type: NodeType) => {
-    setVisible((v) => ({ ...v, [type]: !v[type] }));
+  const zoomBy = (factor: number) => {
+    const svg = svgRef.current;
+    const mx = (svg?.clientWidth || 960) / 2;
+    const my = (svg?.clientHeight || 560) / 2;
+    setTransform((prev) => {
+      const nextK = Math.min(3, Math.max(0.35, prev.k * factor));
+      return {
+        k: nextK,
+        x: mx - ((mx - prev.x) * nextK) / prev.k,
+        y: my - ((my - prev.y) * nextK) / prev.k,
+      };
+    });
   };
 
   if (bundle.loading) return <p className="muted">Loading career map…</p>;
@@ -505,125 +448,156 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
       <div className="ck-stats">
         <div className="stat-card"><div className="stat-value">{stats.experiences}</div><div className="stat-label">Roles</div></div>
         <div className="stat-card"><div className="stat-value">{stats.projects}</div><div className="stat-label">Projects</div></div>
-        <div className="stat-card"><div className="stat-value">{stats.achievements}</div><div className="stat-label">Achievements</div></div>
         <div className="stat-card"><div className="stat-value">{stats.skills}</div><div className="stat-label">Skills</div></div>
-        <div className="stat-card">
-          <div className="stat-value">{stats.total ? Math.round((stats.verified / stats.total) * 100) : 0}%</div>
-          <div className="stat-label">Verified</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{stats.orphans}</div>
-          <div className="stat-label">Unlinked achievements</div>
-        </div>
+        <div className="stat-card"><div className="stat-value">{stats.techs}</div><div className="stat-label">Technologies</div></div>
       </div>
 
-      <div className="row spread mb">
-        <div className="ck-map-filters">
-          {(["experience", "projects", "achievements", "skills", "education", "certifications"] as NodeType[]).map((type) => (
-            <button
-              key={type}
-              type="button"
-              className={`ck-filter ${visible[type] ? "on" : ""}`}
-              style={{ ["--ck-color" as string]: TYPE_COLOR[type] }}
-              onClick={() => toggleType(type)}
-            >
+      <div className="ck-graph-panel">
+        <div className="row spread mb">
+          <div>
+            <h3 className="ck-graph-title">Career Knowledge Graph</h3>
+            <p className="small muted" style={{ margin: 0 }}>Roles, projects, skills, and tools around your profile.</p>
+          </div>
+          <div className="row">
+            <input
+              className="ck-search"
+              placeholder="Search nodes"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button type="button" className="sm" onClick={() => zoomBy(1.15)}>+</button>
+            <button type="button" className="sm" onClick={() => zoomBy(1 / 1.15)}>−</button>
+          </div>
+        </div>
+
+        <div className="row spread mb">
+          <div className="ck-map-filters">
+            {(Object.keys(FILTER_LABEL) as (keyof typeof FILTER_LABEL)[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                className={`ck-filter ${visible[type] ? "on" : ""}`}
+                style={{ ["--ck-color" as string]: TYPE_COLOR[type] }}
+                onClick={() => setVisible((v) => ({ ...v, [type]: !v[type] }))}
+              >
+                {FILTER_LABEL[type]}
+              </button>
+            ))}
+          </div>
+          <span className="small muted">Solid = strong link · dashed = related</span>
+        </div>
+
+        <div className="ck-map">
+          <svg
+            ref={svgRef}
+            className="ck-map-svg"
+            onPointerMove={onPointerMove}
+            onPointerUp={() => { drag.current = null; }}
+            onPointerLeave={() => { drag.current = null; }}
+            onPointerDown={(e) => {
+              if (e.target !== svgRef.current && (e.target as Element).tagName !== "svg") return;
+              const p = pointer(e);
+              drag.current = { mode: "pan", x: p.x, y: p.y };
+              (e.target as Element).setPointerCapture?.(e.pointerId);
+            }}
+          >
+            <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+              <text className="ck-cluster-label" x={128} y={118} textAnchor="middle">Roles</text>
+              <text className="ck-cluster-label" x={LAYOUT.width / 2} y={36} textAnchor="middle">Projects</text>
+              <text className="ck-cluster-label" x={LAYOUT.width - 128} y={118} textAnchor="middle">Skills</text>
+              <text className="ck-cluster-label" x={LAYOUT.width / 2} y={LAYOUT.height - 28} textAnchor="middle">Technologies</text>
+              {shownEdges.map((e, i) => {
+                const a = nodeById[e.source];
+                const b = nodeById[e.target];
+                if (!a || !b) return null;
+                const active = !selectedId || activeIds.has(e.source) && activeIds.has(e.target) && (e.source === selectedId || e.target === selectedId);
+                return (
+                  <line
+                    key={`${e.source}-${e.target}-${i}`}
+                    x1={a.x}
+                    y1={a.y}
+                    x2={b.x}
+                    y2={b.y}
+                    className={`ck-edge ${e.kind} ${active && selectedId ? "active" : ""}`}
+                    opacity={selectedId && !active ? 0.12 : 0.9}
+                  />
+                );
+              })}
+              {shownNodes.map((n) => {
+                const hovered = hoverId === n.id || selectedId === n.id;
+                const dimmed = selectedId ? !activeIds.has(n.id) : false;
+                const color = TYPE_COLOR[n.type];
+                return (
+                  <g
+                    key={n.id}
+                    className="ck-node"
+                    transform={`translate(${n.x} ${n.y})`}
+                    opacity={dimmed ? 0.28 : 1}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      const p = pointer(e);
+                      drag.current = { mode: "node", id: n.id, x: p.x, y: p.y };
+                      setSelectedId(n.id);
+                      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+                    }}
+                    onPointerEnter={() => setHoverId(n.id)}
+                    onPointerLeave={() => setHoverId((h) => (h === n.id ? null : h))}
+                  >
+                    <title>{n.label}{n.sub ? ` — ${n.sub}` : ""}</title>
+                    <rect
+                      x={-n.w / 2}
+                      y={-n.h / 2}
+                      width={n.w}
+                      height={n.h}
+                      rx={n.type === "profile" ? 12 : 10}
+                      fill={n.type === "profile" ? "#1a2748" : `${color}22`}
+                      stroke={hovered ? "#e8ecf6" : color}
+                      strokeWidth={hovered ? 2 : 1.4}
+                    />
+                    <text className="ck-node-label" y={n.sub ? -4 : 4} textAnchor="middle">
+                      {shorten(n.label, n.type === "technology" ? 14 : 22)}
+                    </text>
+                    {n.sub ? (
+                      <text className="ck-node-sub" y={14} textAnchor="middle">
+                        {shorten(n.sub, 24)}
+                      </text>
+                    ) : null}
+                  </g>
+                );
+              })}
+            </g>
+          </svg>
+          {selected && (
+            <div className="ck-map-detail">
+              <div className="row spread">
+                <span className="badge" style={{ color: TYPE_COLOR[selected.type], background: "transparent", border: `1px solid ${TYPE_COLOR[selected.type]}` }}>
+                  {TYPE_LABEL[selected.type]}
+                </span>
+                {selected.status && <span className={`badge ${selected.status}`}>{selected.status.replace("_", " ")}</span>}
+              </div>
+              <div className="title mt">{selected.label}</div>
+              {selected.sub && <div className="meta">{selected.sub}</div>}
+              <div className="small muted mt">
+                {shownEdges.filter((e) => e.source === selected.id || e.target === selected.id).length} connection
+                {shownEdges.filter((e) => e.source === selected.id || e.target === selected.id).length === 1 ? "" : "s"}
+              </div>
+              <button className="primary sm mt" onClick={() => onOpenTab(tabFor(selected.type))}>
+                Open {selected.type === "profile" ? "profile" : FILTER_LABEL[selected.type as Exclude<NodeType, "profile">].toLowerCase()}
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="ck-legend">
+          {(Object.keys(FILTER_LABEL) as (keyof typeof FILTER_LABEL)[]).map((type) => (
+            <span key={type} className="ck-legend-item">
+              <span className="evo-dot" style={{ background: TYPE_COLOR[type] }} />
               {FILTER_LABEL[type]}
-            </button>
+            </span>
           ))}
         </div>
-        <span className="small muted">Drag the canvas to pan · scroll to zoom · drag a node to pin it</span>
       </div>
 
-      <div className="ck-map">
-        <svg
-          ref={svgRef}
-          className="ck-map-svg"
-          onPointerMove={onPointerMove}
-          onPointerUp={() => { drag.current = null; }}
-          onPointerLeave={() => { drag.current = null; }}
-          onPointerDown={(e) => {
-            if (e.target !== svgRef.current && (e.target as Element).tagName !== "svg") return;
-            const p = pointer(e);
-            drag.current = { mode: "pan", x: p.x, y: p.y };
-            (e.target as Element).setPointerCapture?.(e.pointerId);
-          }}
-        >
-          <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
-            {clusterLabels.map((c) => (
-              <text key={c.label} className="ck-cluster-label" x={c.x} y={c.y} textAnchor="middle">
-                {c.label}
-              </text>
-            ))}
-            {shownEdges.map((e, i) => {
-              const a = nodeById[e.source];
-              const b = nodeById[e.target];
-              if (!a || !b) return null;
-              const active = selectedId && (e.source === selectedId || e.target === selectedId);
-              return (
-                <line
-                  key={`${e.source}-${e.target}-${i}`}
-                  x1={a.x}
-                  y1={a.y}
-                  x2={b.x}
-                  y2={b.y}
-                  className={`ck-edge ${e.kind} ${active ? "active" : ""}`}
-                />
-              );
-            })}
-            {shownNodes.map((n) => {
-              const hovered = hoverId === n.id || selectedId === n.id;
-              return (
-                <g
-                  key={n.id}
-                  className="ck-node"
-                  transform={`translate(${n.x} ${n.y})`}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    const p = pointer(e);
-                    drag.current = { mode: "node", id: n.id, x: p.x, y: p.y };
-                    setSelectedId(n.id);
-                    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-                  }}
-                  onPointerEnter={() => setHoverId(n.id)}
-                  onPointerLeave={() => setHoverId((h) => (h === n.id ? null : h))}
-                >
-                  <title>{n.label}{n.sub ? ` — ${n.sub}` : ""}</title>
-                  <circle
-                    r={n.r + (hovered ? 2 : 0)}
-                    fill={TYPE_COLOR[n.type]}
-                    stroke={statusStroke(n.status)}
-                    strokeWidth={n.status ? 2.4 : 1.2}
-                    opacity={selectedId && selectedId !== n.id ? 0.45 : 0.95}
-                  />
-                  <text className="ck-node-label" y={n.r + 12} textAnchor="middle">
-                    {n.label.length > 22 ? `${n.label.slice(0, 20)}…` : n.label}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-        </svg>
-        {selected && (
-          <div className="ck-map-detail">
-            <div className="row spread">
-              <span className="badge" style={{ color: TYPE_COLOR[selected.type], background: "transparent", border: `1px solid ${TYPE_COLOR[selected.type]}` }}>
-                {TYPE_LABEL[selected.type]}
-              </span>
-              {selected.status && <span className={`badge ${selected.status}`}>{selected.status.replace("_", " ")}</span>}
-            </div>
-            <div className="title mt">{selected.label}</div>
-            {selected.sub && <div className="meta">{selected.sub}</div>}
-            <div className="meta">Field: {selected.cluster}</div>
-            <div className="small muted mt">
-              {shownEdges.filter((e) => e.source === selected.id || e.target === selected.id).length} connection
-              {shownEdges.filter((e) => e.source === selected.id || e.target === selected.id).length === 1 ? "" : "s"}
-            </div>
-            <button className="primary sm mt" onClick={() => onOpenTab(selected.type)}>
-              Open {FILTER_LABEL[selected.type].toLowerCase()}
-            </button>
-          </div>
-        )}
-      </div>
+      <CareerEvolution experiences={bundle.data.experiences} narratives={profile.data?.career_narratives} />
     </>
   );
 }

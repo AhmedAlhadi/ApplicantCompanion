@@ -73,7 +73,16 @@ def compute_score(
     for req in requirements:
         match = match_by_req.get(req.id)
         status = match.status if match else "UNKNOWN"
+        # A structured alternative group is one requirement: ANY qualifying
+        # path earns one match, and unsatisfied paths are never double-counted.
+        evaluation = getattr(match, "qualification_evaluation", None) if match else None
+        if evaluation and evaluation.get("status") in {
+            "MATCHED", "NOT_MATCHED", "UNKNOWN",
+        }:
+            status = evaluation["status"]
         imp_w = IMPORTANCE_WEIGHTS.get(req.importance, 2.0)
+        if req.requirement_type == "preferred":
+            imp_w *= 0.5
         if status == "UNKNOWN":
             unknown_count += 1
             continue
@@ -87,7 +96,11 @@ def compute_score(
             partial.append(req.text)
         elif status == "TRANSFERABLE":
             transferable.append(req.text)
-        elif status == "NOT_MATCHED" and req.importance in ("CRITICAL", "HIGH"):
+        elif (
+            status == "NOT_MATCHED"
+            and req.requirement_type == "mandatory"
+            and req.importance in ("CRITICAL", "HIGH")
+        ):
             gaps.append(req.text)
 
     category_scores: dict[str, float] = {}

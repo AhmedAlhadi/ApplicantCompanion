@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 from ..models import (
     Achievement,
     CareerNarrative,
+    Certification,
+    Education,
     Experience,
+    Language,
     Project,
     Skill,
 )
@@ -22,7 +25,10 @@ from .embeddings import get_embedding_provider, tokenize
 from .vector_store import VectorRecord, get_vector_store
 
 # Entity types that are indexed for semantic retrieval (§3 vector database)
-INDEXED_ENTITY_TYPES = ("experience", "achievement", "project", "skill", "narrative")
+INDEXED_ENTITY_TYPES = (
+    "experience", "achievement", "project", "skill", "education",
+    "certification", "language", "narrative",
+)
 
 
 @dataclass
@@ -58,6 +64,12 @@ def _entity_text(entity_type: str, obj) -> str:
         return "\n".join(p for p in parts if p)
     if isinstance(obj, Skill):
         return " ".join([obj.canonical_name, obj.category] + (obj.synonyms or []))
+    if isinstance(obj, Education):
+        return "\n".join(p for p in [obj.degree, obj.field_of_study, obj.institution, obj.description] if p)
+    if isinstance(obj, Certification):
+        return "\n".join(p for p in [obj.name, obj.issuer] if p)
+    if isinstance(obj, Language):
+        return " ".join(p for p in [obj.language, obj.proficiency, "native" if obj.is_native else ""] if p)
     if isinstance(obj, CareerNarrative):
         return f"{obj.title}\n{obj.content}"
     return str(obj)
@@ -68,8 +80,25 @@ _MODEL_FOR = {
     "achievement": Achievement,
     "project": Project,
     "skill": Skill,
+    "education": Education,
+    "certification": Certification,
+    "language": Language,
     "narrative": CareerNarrative,
 }
+
+
+def _structured_metadata(entity_type: str, obj) -> dict:
+    if entity_type == "experience":
+        return {"start_date": obj.start_date, "end_date": obj.end_date}
+    if entity_type == "education":
+        return {"degree": obj.degree, "field_of_study": obj.field_of_study}
+    if entity_type == "certification":
+        return {"name": obj.name, "issuer": obj.issuer}
+    if entity_type == "language":
+        return {"language": obj.language, "proficiency": obj.proficiency, "is_native": obj.is_native}
+    if entity_type == "skill":
+        return {"name": obj.canonical_name, "years_experience": obj.years_experience}
+    return {}
 
 
 def index_entity(db: Session, entity_type: str, entity_id: str) -> None:
@@ -168,6 +197,7 @@ def retrieve_evidence(
                 source=hit.payload.get("verification_status", ""),
                 verification_status=getattr(obj, "verification_status", "unverified"),
                 confidence=getattr(obj, "confidence", 0.5),
+                metadata=_structured_metadata(entity_type, obj),
             )
         )
 

@@ -41,6 +41,8 @@ class BaseAgent:
     task: str = "classification"  # model-routing task (§45)
     prompt_name: str = ""
     output_model: type[BaseModel] | None = None
+    validation_retries: int = 0
+    max_tokens: int = 4096
 
     def __init__(self, prompt_version: str | None = None):
         self.prompt = load_prompt(self.prompt_name, prompt_version) if self.prompt_name else None
@@ -73,30 +75,72 @@ class BaseAgent:
             schema = (
                 self.output_model.model_json_schema() if self.output_model else None
             )
-            request = LLMRequest(
-                prompt_name=self.prompt.name if self.prompt else self.name,
-                prompt_version=self.prompt.version if self.prompt else "",
-                system=self.prompt.system if self.prompt else "",
-                user=user_message,
-                response_schema=schema,
-            )
-            response = routed.provider.generate(routed.model, request)
-            result = self._parse(response.data)
+            response = None
+            validation_errors: list[str] = []
+            prompt_tokens = 0
+            completion_tokens = 0
+            result = None
+            for attempt in range(self.validation_retries + 1):
+                repair_context = ""
+                if attempt:
+                    previous = response.text[:6000] if response else ""
+                    repair_context = (
+                        "\n\nThe previous response failed schema validation. "
+                        "Return a corrected complete JSON object only.\n"
+                        f"Validation errors:\n{validation_errors[-1][:3000]}\n"
+                        f"Previous response:\n{previous}"
+                    )
+                request = LLMRequest(
+                    prompt_name=self.prompt.name if self.prompt else self.name,
+                    prompt_version=self.prompt.version if self.prompt else "",
+                    system=self.prompt.system if self.prompt else "",
+                    user=user_message + repair_context,
+                    response_schema=schema,
+                    max_tokens=self.max_tokens,
+                )
+                response = routed.provider.generate(routed.model, request)
+                prompt_tokens += response.prompt_tokens
+                completion_tokens += response.completion_tokens
+                try:
+                    result = self._parse(response.data)
+                    break
+                except (AgentError, ValidationError) as exc:
+                    validation_errors.append(str(exc))
+                    if attempt >= self.validation_retries:
+                        raise
+                    logger.info(
+                        "Repairing invalid %s output (attempt %s/%s)",
+                        self.name,
+                        attempt + 1,
+                        self.validation_retries,
+                    )
+            if result is None:
+                raise AgentError("structured output repair produced no result")
             execution.status = "COMPLETED"
             execution.output = result if isinstance(result, dict) else (
                 result.model_dump() if isinstance(result, BaseModel) else {"value": str(result)}
             )
             execution.output_summary = json.dumps(execution.output)[:500]
             execution.token_usage = {
-                "prompt_tokens": response.prompt_tokens,
-                "completion_tokens": response.completion_tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
             }
-            execution.validation_result = {"schema_valid": True}
+            execution.validation_result = {
+                "schema_valid": True,
+                "attempts": len(validation_errors) + 1,
+                "repaired": bool(validation_errors),
+            }
             return result
         except (AgentError, ValidationError) as exc:
             execution.status = "FAILED"
             execution.error = str(exc)[:2000]
-            execution.validation_result = {"schema_valid": False}
+            if "response" in locals() and response is not None:
+                execution.output = {"invalid_response": response.text[:6000]}
+            execution.validation_result = {
+                "schema_valid": False,
+                "attempts": len(validation_errors) if "validation_errors" in locals() else 1,
+                "errors": validation_errors[-3:] if "validation_errors" in locals() else [str(exc)],
+            }
             logger.warning("Agent %s failed: %s", self.name, exc)
             raise AgentError(f"{self.name}: {exc}") from exc
         except Exception as exc:  # provider/network errors

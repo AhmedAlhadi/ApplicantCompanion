@@ -14,6 +14,7 @@ on a WorkflowRun, and agent failures degrade gracefully (§54).
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -23,6 +24,9 @@ from ..config import get_settings
 from ..models import (
     Application,
     ApplicationStrategy,
+    Certification,
+    Education,
+    Experience,
     HiringContext,
     Job,
     JobRequirement,
@@ -31,9 +35,12 @@ from ..models import (
     OrganizationResearch,
     Person,
     RequirementMatch,
+    Language,
+    Skill,
     User,
     WorkflowRun,
 )
+from ..qualification import evaluate_qualification_paths
 from ..retrieval.pipeline import retrieve_evidence
 from ..schemas.agents import HiringContextResult, OrganizationResearchResult
 from ..scoring.engine import compute_score
@@ -70,6 +77,23 @@ GENERATION_STAGES = [
 ]
 
 
+def generation_stages(
+    *,
+    generate_cv: bool = True,
+    generate_cover_letter: bool = True,
+    strategy_only: bool = False,
+) -> list[str]:
+    if strategy_only:
+        return ["GenerateApplicationStrategy"]
+    stages = list(GENERATION_STAGES)
+    if not generate_cv:
+        stages.remove("GenerateCV")
+        stages.remove("ValidateCV")
+    if not generate_cover_letter:
+        stages.remove("GenerateCoverLetter")
+    return stages
+
+
 class Orchestrator:
     def __init__(self, db: Session, user: User):
         self.db = db
@@ -91,6 +115,13 @@ class Orchestrator:
         return run
 
     def _stage(self, run: WorkflowRun, name: str, status: str, error: str = "") -> None:
+        if (
+            status == "RUNNING"
+            and run.workflow_type == "job_analysis"
+            and getattr(self, "_analysis_deadline", None) is not None
+            and time.monotonic() > self._analysis_deadline
+        ):
+            raise TimeoutError("Job analysis exceeded its configured deadline")
         stages = [dict(s) for s in run.stages]
         for s in stages:
             if s["name"] == name:
@@ -130,6 +161,9 @@ class Orchestrator:
     # ── workflow 1: job analysis (§9) ─────────────────────────────────────
 
     def run_job_analysis(self, job: Job, *, include_research: bool = True, run: WorkflowRun | None = None) -> WorkflowRun:
+        self._analysis_deadline = (
+            time.monotonic() + get_settings().analysis_timeout_seconds
+        )
         run = run or self._new_run("job_analysis", ANALYSIS_STAGES, job_id=job.id)
         ctx = self._ctx(run, job_id=job.id)
         job.status = "analyzing"
@@ -162,7 +196,9 @@ class Orchestrator:
         job.reporting_line = pos.reporting_line
         job.executive_summary = analysis.summary
 
-        # Persist requirements (replace any previous analysis)
+        # Persist requirements (replace any previous analysis). Matches
+        # reference requirement ids, so they must be removed first.
+        self.db.query(RequirementMatch).filter(RequirementMatch.job_id == job.id).delete()
         self.db.query(JobRequirement).filter(JobRequirement.job_id == job.id).delete()
         requirements = []
         for req in analysis.requirements:
@@ -173,6 +209,7 @@ class Orchestrator:
                 text=req.text,
                 importance=req.importance,
                 keywords=req.keywords,
+                qualification_paths=[path.model_dump() for path in req.qualification_paths],
             )
             self.db.add(row)
             requirements.append(row)
@@ -295,9 +332,93 @@ class Orchestrator:
         # 4. Retrieve candidate evidence (§35-36) ─────────────────────────
         self._stage(run, "RetrieveCandidateEvidence", "RUNNING")
         evidence_by_req: dict[str, list[dict]] = {}
+        facts_by_req: dict[str, dict[str, list[dict]]] = {}
         all_evidence: dict[tuple[str, str], dict] = {}
+        structured_facts: dict[str, list[dict]] = {
+            "education": [
+                {
+                    "entity_type": "education",
+                    "entity_id": item.id,
+                    "text": " ".join(filter(None, [item.degree, item.field_of_study, item.institution])),
+                    "degree": item.degree,
+                    "field_of_study": item.field_of_study,
+                    "verification_status": item.verification_status,
+                }
+                for item in self.db.query(Education).filter(
+                    Education.user_id == self.user.id,
+                    Education.is_deleted == False,  # noqa: E712
+                )
+            ],
+            "certification": [
+                {
+                    "entity_type": "certification",
+                    "entity_id": item.id,
+                    "text": " ".join(filter(None, [item.name, item.issuer])),
+                    "name": item.name,
+                    "issuer": item.issuer,
+                    "verification_status": item.verification_status,
+                }
+                for item in self.db.query(Certification).filter(
+                    Certification.user_id == self.user.id,
+                    Certification.is_deleted == False,  # noqa: E712
+                )
+            ],
+            "language": [
+                {
+                    "entity_type": "language",
+                    "entity_id": item.id,
+                    "text": " ".join(filter(None, [item.language, item.proficiency])),
+                    "language": item.language,
+                    "proficiency": item.proficiency,
+                    "is_native": item.is_native,
+                    "verification_status": "verified" if item.is_native else "unverified",
+                }
+                for item in self.db.query(Language).filter(
+                    Language.user_id == self.user.id,
+                    Language.is_deleted == False,  # noqa: E712
+                )
+            ],
+            "experience": [
+                {
+                    "entity_type": "experience",
+                    "entity_id": item.id,
+                    "text": " ".join(filter(None, [
+                        item.job_title,
+                        item.organization,
+                        item.description,
+                        " ".join(item.responsibilities or []),
+                        " ".join(item.technologies or []),
+                        " ".join(item.domains or []),
+                    ])),
+                    "start_date": item.start_date,
+                    "end_date": item.end_date,
+                    "verification_status": item.verification_status,
+                }
+                for item in self.db.query(Experience).filter(
+                    Experience.user_id == self.user.id,
+                    Experience.is_deleted == False,  # noqa: E712
+                )
+            ],
+            "skill": [
+                {
+                    "entity_type": "skill",
+                    "entity_id": item.id,
+                    "text": " ".join(filter(None, [item.canonical_name, item.category])),
+                    "name": item.canonical_name,
+                    "years_experience": item.years_experience,
+                    "verification_status": item.verification_status,
+                }
+                for item in self.db.query(Skill).filter(
+                    Skill.user_id == self.user.id,
+                    Skill.is_deleted == False,  # noqa: E712
+                )
+            ],
+        }
         for req in requirements:
-            items = retrieve_evidence(self.db, self.user.id, req.text, limit=6)
+            # Keep enough scoped candidates to include structured education,
+            # certification, language, and dated experience facts alongside
+            # semantic evidence for compound qualification alternatives.
+            items = retrieve_evidence(self.db, self.user.id, req.text, limit=12)
             ev_payloads = []
             for item in items:
                 payload = {
@@ -306,10 +427,23 @@ class Orchestrator:
                     "text": item.text[:600],
                     "verification_status": item.verification_status,
                     "retrieval_score": round(item.score, 4),
+                    **item.metadata,
                 }
                 ev_payloads.append(payload)
                 all_evidence.setdefault((item.entity_type, item.entity_id), payload)
             evidence_by_req[req.id] = ev_payloads
+            grouped = {
+                entity_type: [dict(item) for item in items]
+                for entity_type, items in structured_facts.items()
+            }
+            for payload in ev_payloads:
+                existing_ids = {
+                    item["entity_id"]
+                    for item in grouped.setdefault(payload["entity_type"], [])
+                }
+                if payload["entity_id"] not in existing_ids:
+                    grouped[payload["entity_type"]].append(payload)
+            facts_by_req[req.id] = grouped
         self._stage(run, "RetrieveCandidateEvidence", "COMPLETED")
 
         # 5. Match requirements (§15-17) ──────────────────────────────────
@@ -323,6 +457,7 @@ class Orchestrator:
                     "importance": r.importance,
                     "requirement_type": r.requirement_type,
                     "keywords": r.keywords,
+                    "qualification_paths": r.qualification_paths,
                 }
                 for r in requirements
             ]
@@ -330,6 +465,8 @@ class Orchestrator:
                 ctx,
                 requirements=req_payloads,
                 evidence=list(all_evidence.values()),
+                evidence_by_requirement=evidence_by_req,
+                structured_facts=facts_by_req,
             )
         except AgentError as exc:
             self._stage(run, "MatchRequirements", "FAILED", str(exc))
@@ -341,18 +478,65 @@ class Orchestrator:
 
         self.db.query(RequirementMatch).filter(RequirementMatch.job_id == job.id).delete()
         req_by_id = {r.id: r for r in requirements}
+        returned_matches = {
+            match.requirement_id: match
+            for match in matching.matches
+            if match.requirement_id in req_by_id
+        }
         match_rows: list[RequirementMatch] = []
-        for m in matching.matches:
-            if m.requirement_id not in req_by_id:
-                continue
+        for requirement in requirements:
+            model_match = returned_matches.get(requirement.id)
+            evaluation = evaluate_qualification_paths(
+                requirement.qualification_paths or [],
+                facts_by_req.get(requirement.id, {}),
+            )
+            status = evaluation.get(
+                "status",
+                model_match.status if model_match else "UNKNOWN",
+            )
+            evidence = (
+                [item.model_dump() for item in model_match.evidence]
+                if model_match
+                else []
+            )
+            if evaluation.get("evidence_ids"):
+                existing_ids = {item["entity_id"] for item in evidence}
+                indexed = {
+                    item["entity_id"]: item
+                    for items in facts_by_req.get(requirement.id, {}).values()
+                    for item in items
+                }
+                for entity_id in evaluation["evidence_ids"]:
+                    item = indexed.get(entity_id)
+                    if item and entity_id not in existing_ids:
+                        evidence.append({
+                            "entity_type": item["entity_type"],
+                            "entity_id": entity_id,
+                            "evidence": item["text"][:300],
+                            "source": item["verification_status"],
+                        })
             row = RequirementMatch(
                 job_id=job.id,
-                requirement_id=m.requirement_id,
-                status=m.status,
-                confidence=m.confidence,
-                explanation=m.explanation,
-                match_kind=m.match_kind,
-                evidence=[e.model_dump() for e in m.evidence],
+                requirement_id=requirement.id,
+                status=status,
+                confidence=(
+                    0.95
+                    if evaluation and status != "UNKNOWN"
+                    else model_match.confidence if model_match else 0.0
+                ),
+                explanation=(
+                    model_match.explanation
+                    if model_match
+                    else "No model verdict was returned; treated as unknown."
+                ),
+                match_kind=model_match.match_kind if model_match else "direct",
+                evidence=evidence,
+                qualification_evaluation=(
+                    evaluation
+                    or model_match.qualification_evaluation
+                    if model_match
+                    else evaluation
+                ),
             )
             self.db.add(row)
             match_rows.append(row)
@@ -413,9 +597,12 @@ class Orchestrator:
 
     # ── workflow 2: document generation (§22-31) ─────────────────────────
 
-    def run_strategy(self, application: Application) -> WorkflowRun:
-        run = self._new_run(
-            "document_generation", ["GenerateApplicationStrategy"], job_id=application.job_id, application_id=application.id
+    def run_strategy(self, application: Application, *, run: WorkflowRun | None = None) -> WorkflowRun:
+        run = run or self._new_run(
+            "document_generation",
+            generation_stages(strategy_only=True),
+            job_id=application.job_id,
+            application_id=application.id,
         )
         ctx = self._ctx(run, job_id=application.job_id, application_id=application.id)
         self._stage(run, "GenerateApplicationStrategy", "RUNNING")
@@ -432,16 +619,12 @@ class Orchestrator:
         generate_cv: bool = True,
         generate_cover_letter: bool = True,
         template_key: str | None = None,
+        run: WorkflowRun | None = None,
     ) -> WorkflowRun:
         from ..services.documents import DocumentService
 
-        stages = list(GENERATION_STAGES)
-        if not generate_cv:
-            stages.remove("GenerateCV")
-            stages.remove("ValidateCV")
-        if not generate_cover_letter:
-            stages.remove("GenerateCoverLetter")
-        run = self._new_run(
+        stages = generation_stages(generate_cv=generate_cv, generate_cover_letter=generate_cover_letter)
+        run = run or self._new_run(
             "document_generation", stages, job_id=application.job_id, application_id=application.id
         )
         ctx = self._ctx(run, job_id=application.job_id, application_id=application.id)

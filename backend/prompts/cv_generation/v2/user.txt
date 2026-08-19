@@ -1,0 +1,7 @@
+Generate the targeted CV. Include every experience from the payload. Under each role, keep only the tasks and achievements that are relevant to this vacancy (fewer bullets for de-emphasized roles). Put evidence ids only in evidence_ids fields — never in visible text.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

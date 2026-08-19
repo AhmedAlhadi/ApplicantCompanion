@@ -16,14 +16,27 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "achievements",
-        sa.Column("project_id", sa.String(length=36), nullable=True),
-    )
-    op.add_column(
-        "achievements",
-        sa.Column("education_id", sa.String(length=36), nullable=True),
-    )
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    if "achievements" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("achievements")}
+    added_columns = False
+    if "project_id" not in cols:
+        op.add_column(
+            "achievements",
+            sa.Column("project_id", sa.String(length=36), nullable=True),
+        )
+        added_columns = True
+    if "education_id" not in cols:
+        op.add_column(
+            "achievements",
+            sa.Column("education_id", sa.String(length=36), nullable=True),
+        )
+        added_columns = True
+    if not added_columns:
+        # create_all already added these columns (and their FKs/indexes).
+        return
     op.create_foreign_key(
         "fk_achievements_project_id",
         "achievements",

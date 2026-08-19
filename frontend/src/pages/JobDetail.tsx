@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Application, JobAnalysisResponse, JobScore, ResearchResponse, WorkflowRun } from "../api/types";
 import { Empty, ProgressStages, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+import { EvidenceGraph } from "../components/EvidenceGraph";
 
 const CATEGORY_LABELS: Record<string, string> = {
   mandatory_qualifications: "Mandatory Requirements",
@@ -21,22 +22,32 @@ export default function JobDetail() {
   const score = useApi<JobScore>(() => api.get(`/api/jobs/${id}/score`), [id]);
   const research = useApi<ResearchResponse>(() => api.get(`/api/jobs/${id}/research`), [id]);
   const [busy, setBusy] = useState(false);
+  const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
   const [gateError, setGateError] = useState<{ score: number; threshold: number; gaps: string[] } | null>(null);
   const navigate = useNavigate();
 
   const job = analysis.data?.job;
   const analyzing = job?.status === "analyzing";
-  const workflow = useWorkflow(null, analyzing ? `/api/jobs/${id}/workflow` : null, () => {
+  const workflow = useWorkflow(workflowRunId, analyzing || workflowRunId ? `/api/jobs/${id}/workflow` : null, () => {
+    setWorkflowRunId(null);
     analysis.reload();
     score.reload();
     research.reload();
   });
+  const workflowActive = analyzing && workflow?.status !== "FAILED" && workflow?.status !== "COMPLETED";
 
   const runAnalysis = async () => {
     setBusy(true);
-    await api.post(`/api/jobs/${id}/analyze`, { include_research: true });
-    analysis.reload();
-    setBusy(false);
+    try {
+      const accepted = await api.post<{ workflow_run_id: string }>(
+        `/api/jobs/${id}/analyze`,
+        { include_research: true },
+      );
+      setWorkflowRunId(accepted.workflow_run_id);
+      analysis.reload();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const startApplication = async () => {
@@ -67,8 +78,8 @@ export default function JobDetail() {
         </div>
         <div className="row">
           <span className={`badge ${job.status}`}>{job.status}</span>
-          <button onClick={runAnalysis} disabled={busy || analyzing}>{analyzing ? <Spinner /> : null} Re-analyze</button>
-          <button className="primary" onClick={startApplication} disabled={busy || analyzing || !s}>
+          <button onClick={runAnalysis} disabled={busy || workflowActive}>{workflowActive ? <Spinner /> : null} Re-analyze</button>
+          <button className="primary" onClick={startApplication} disabled={busy || workflowActive || !s}>
             Open Application Workspace
           </button>
         </div>
@@ -78,6 +89,11 @@ export default function JobDetail() {
         <div className="panel">
           <h3>Analyzing job…</h3>
           <ProgressStages workflow={workflow} />
+        </div>
+      )}
+      {workflow?.status === "FAILED" && (
+        <div className="alert error">
+          Analysis failed: {workflow.error || workflow.stages.find((stage) => stage.status === "FAILED")?.error || "Unknown workflow error"}
         </div>
       )}
 
@@ -129,6 +145,8 @@ export default function JobDetail() {
         </div>
       )}
 
+      {analysis.data && requirements.length > 0 && <EvidenceGraph analysis={analysis.data} />}
+
       {requirements.length > 0 && (
         <div className="panel">
           <h3>Requirements Matrix</h3>
@@ -137,11 +155,35 @@ export default function JobDetail() {
             <tbody>
               {requirements.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.text}</td>
+                  <td>
+                    <div>{r.text}</div>
+                    {r.qualification_paths?.length ? (
+                      <div className="small muted mt">
+                        Any qualifying path: {r.qualification_paths.map((path, index) => (
+                          <span key={index}>
+                            {index ? " OR " : ""}
+                            {path.label || path.predicates.map((predicate) => (
+                              predicate.minimum_level
+                              || (predicate.minimum_years != null ? `${predicate.minimum_years}+ years` : "")
+                              || predicate.value
+                              || predicate.terms?.join(", ")
+                              || predicate.kind
+                            )).join(" + ")}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="muted small">{r.requirement_type}</td>
                   <td><span className={`badge ${r.importance}`}>{r.importance}</span></td>
                   <td>{r.match ? <span className={`badge ${r.match.status}`}>{r.match.status.replace("_", " ")}</span> : <span className="badge UNKNOWN">—</span>}</td>
                   <td className="small muted">
+                    {r.match?.qualification_evaluation?.selected_path_index != null && (
+                      <div>
+                        Qualified through: {r.qualification_paths?.[r.match.qualification_evaluation.selected_path_index]?.label
+                          || `path ${r.match.qualification_evaluation.selected_path_index + 1}`}
+                      </div>
+                    )}
                     {r.match?.evidence?.length
                       ? r.match.evidence.slice(0, 2).map((e, i) => <div key={i}>“{e.evidence.slice(0, 110)}{e.evidence.length > 110 ? "…" : ""}”</div>)
                       : r.match?.explanation ?? "—"}

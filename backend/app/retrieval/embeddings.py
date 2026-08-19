@@ -63,7 +63,7 @@ def _openai_compatible_embed(
         f"{base_url.rstrip('/')}/embeddings",
         headers=headers,
         json={"model": model, "input": texts},
-        timeout=60.0,
+        timeout=get_settings().embedding_timeout_seconds,
     )
     resp.raise_for_status()
     data = resp.json()

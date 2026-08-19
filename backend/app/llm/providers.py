@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import json
+import time
 
 import httpx
 
 from ..config import get_settings
 from .base import LLMRequest, LLMResponse, LLMProvider
-
-_TIMEOUT = 120.0
-
 
 def _raise_http_error(resp: httpx.Response) -> None:
     detail = (resp.text or "")[:800]
@@ -18,6 +16,35 @@ def _raise_http_error(resp: httpx.Response) -> None:
         request=resp.request,
         response=resp,
     )
+
+
+def _post_json(url: str, **kwargs) -> httpx.Response:
+    """POST with bounded retry for transient transport/provider failures."""
+    settings = get_settings()
+    attempts = max(1, settings.llm_transport_retries + 1)
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            response = httpx.post(
+                url,
+                timeout=settings.llm_timeout_seconds,
+                **kwargs,
+            )
+            if response.status_code != 429 and response.status_code < 500:
+                return response
+            last_error = httpx.HTTPStatusError(
+                f"transient provider status {response.status_code}",
+                request=response.request,
+                response=response,
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = exc
+        if attempt + 1 < attempts:
+            time.sleep(0.5 * (2**attempt))
+    if isinstance(last_error, httpx.HTTPStatusError):
+        return last_error.response
+    assert last_error is not None
+    raise last_error
 
 
 def _openai_compatible_chat(
@@ -38,7 +65,14 @@ def _openai_compatible_chat(
     
     system_prompt = request.system
     if request.response_schema:
-        payload["response_format"] = {"type": "json_object"}
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": request.prompt_name.replace("-", "_"),
+                "strict": True,
+                "schema": request.response_schema,
+            },
+        }
         schema_json = json.dumps(request.response_schema, indent=2)
         system_prompt += f"\n\nIMPORTANT: You must return a JSON object that strictly adheres to the following JSON schema:\n```json\n{schema_json}\n```"
 
@@ -49,7 +83,12 @@ def _openai_compatible_chat(
 
     headers = {"Authorization": f"Bearer {api_key}", **(extra_headers or {})}
     url = f"{base_url.rstrip('/')}/chat/completions"
-    resp = httpx.post(url, headers=headers, json=payload, timeout=_TIMEOUT)
+    resp = _post_json(url, headers=headers, json=payload)
+    if request.response_schema and resp.status_code in (400, 422):
+        # Some OpenAI-compatible models only implement JSON-object mode.
+        # Pydantic validation and repair retries remain the final contract.
+        payload["response_format"] = {"type": "json_object"}
+        resp = _post_json(url, headers=headers, json=payload)
 
     if resp.status_code >= 400:
         _raise_http_error(resp)
@@ -134,7 +173,7 @@ class GeminiProvider(LLMProvider):
                 "responseMimeType": "application/json" if request.response_schema else "text/plain",
             },
         }
-        resp = httpx.post(url, json=payload, timeout=_TIMEOUT)
+        resp = _post_json(url, json=payload)
         resp.raise_for_status()
         data = resp.json()
         text = "".join(
@@ -181,9 +220,7 @@ class OllamaProvider(LLMProvider):
         }
         if request.response_schema:
             payload["format"] = "json"
-        resp = httpx.post(
-            f"{settings.ollama_base_url}/api/chat", json=payload, timeout=_TIMEOUT
-        )
+        resp = _post_json(f"{settings.ollama_base_url}/api/chat", json=payload)
         resp.raise_for_status()
         data = resp.json()
         text = data["message"]["content"]

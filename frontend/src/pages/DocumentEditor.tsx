@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, downloadFile } from "../api/client";
 import type { AppDocument, CVContent, CoverLetterContent, Template } from "../api/types";
-import { Empty, ErrorBox, Link, Spinner, useApi } from "../components/ui";
+import { Empty, ErrorBox, Link, ProgressBar, Spinner, useApi } from "../components/ui";
+import { mergeEvidenceIds, stripInlineEvidence } from "../lib/evidenceText";
 
 /* Document editor: full human control (§30) — edit any text, reorder/remove
    sections, regenerate single sections, restore versions, switch templates,
@@ -122,6 +123,9 @@ export default function DocumentEditor() {
                 </button>
               ))}
             </div>
+            {busy && (isCV ? ["summary", "experience", "skills"] : ["paragraphs"]).includes(busy) && (
+              <ProgressBar label={`Regenerating ${busy}…`} />
+            )}
             <p className="small muted mt">Only the chosen section is regenerated; the rest of the document is preserved.</p>
           </div>
 
@@ -202,7 +206,7 @@ function CVPreview({ content, evidenceFor, onEvidence, docId }: { content: CVCon
       {content.summary && (
         <>
           <h2>Professional Summary</h2>
-          <p>{content.summary}</p>
+          <p>{stripInlineEvidence(content.summary).text}</p>
         </>
       )}
       <h2>Professional Experience</h2>
@@ -213,15 +217,17 @@ function CVPreview({ content, evidenceFor, onEvidence, docId }: { content: CVCon
           <ul>
             {e.bullets.map((b, j) => {
               const key = `${i}-${j}`;
+              const cleaned = stripInlineEvidence(b.text);
+              const ids = mergeEvidenceIds(b.evidence_ids, cleaned.ids);
               return (
                 <li key={j}>
-                  {b.text}{" "}
-                  {!!b.evidence_ids?.length && (
-                    <button className="sm ghost" style={{ padding: "0 6px", fontSize: 11 }} onClick={() => onEvidence(evidenceFor === key ? null : key)}>
+                  {cleaned.text}{" "}
+                  {!!ids.length && (
+                    <button className="sm ghost evidence-remark" onClick={() => onEvidence(evidenceFor === key ? null : key)}>
                       [View Evidence]
                     </button>
                   )}
-                  {evidenceFor === key && <EvidencePopover docId={docId} ids={b.evidence_ids} onClose={() => onEvidence(null)} />}
+                  {evidenceFor === key && <EvidencePopover docId={docId} ids={ids} onClose={() => onEvidence(null)} />}
                 </li>
               );
             })}
@@ -249,17 +255,19 @@ function LetterPreview({ content, evidenceFor, onEvidence, docId }: { content: C
       <p>{content.salutation}</p>
       {content.paragraphs.map((p, i) => {
         const key = `p-${i}`;
+        const cleaned = stripInlineEvidence(p.text);
+        const ids = mergeEvidenceIds(p.evidence_ids, cleaned.ids);
         return (
           <div key={i}>
             <p>
-              {p.text}{" "}
-              {!!p.evidence_ids?.filter(Boolean).length && (
-                <button className="sm ghost" style={{ padding: "0 6px", fontSize: 11 }} onClick={() => onEvidence(evidenceFor === key ? null : key)}>
+              {cleaned.text}{" "}
+              {!!ids.length && (
+                <button className="sm ghost evidence-remark" onClick={() => onEvidence(evidenceFor === key ? null : key)}>
                   [View Evidence]
                 </button>
               )}
             </p>
-            {evidenceFor === key && <EvidencePopover docId={docId} ids={p.evidence_ids} onClose={() => onEvidence(null)} />}
+            {evidenceFor === key && <EvidencePopover docId={docId} ids={ids} onClose={() => onEvidence(null)} />}
           </div>
         );
       })}

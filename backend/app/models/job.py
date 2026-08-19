@@ -63,6 +63,9 @@ class JobRequirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     text: Mapped[str] = mapped_column(Text)
     importance: Mapped[str] = mapped_column(String(16), default="MEDIUM")
     keywords: Mapped[list] = mapped_column(JSON, default=list)
+    # Alternative qualification routes: ANY path may qualify; every predicate
+    # inside a path must qualify. Empty preserves legacy flat requirements.
+    qualification_paths: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class OrganizationResearch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -119,6 +122,8 @@ class RequirementMatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     match_kind: Mapped[str] = mapped_column(String(32), default="direct")  # direct|transferable
     evidence: Mapped[list] = mapped_column(JSON, default=list)
     # [{entity_type, entity_id, evidence, source}]
+    qualification_evaluation: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Deterministic per-path/per-predicate result retained for auditability.
 
 
 class JobScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -65,11 +65,20 @@ class Settings(BaseSettings):
     llm_model_cv_generation: str = "openrouter:openai/gpt-4o"
     llm_model_cover_letter: str = "openrouter:openai/gpt-4o"
     llm_model_ats: str = "openrouter:openai/gpt-4o-mini"
+    llm_timeout_seconds: float = 120.0
+    llm_transport_retries: int = 2
 
     # Embeddings
     embedding_provider: str = "hash"  # hash | openrouter | openai
     embedding_model: str = "openai/text-embedding-3-small"
     embedding_dim: int = 384
+    embedding_timeout_seconds: float = 60.0
+    qdrant_timeout_seconds: float = 15.0
+
+    # Background workflow lease/deadline. A lease permits stale-run recovery
+    # after a process restart; bounded providers ensure the deadline is observed.
+    analysis_timeout_seconds: int = 15 * 60
+    workflow_lease_seconds: int = 20 * 60
 
     # Scoring
     score_threshold: float = 0.80

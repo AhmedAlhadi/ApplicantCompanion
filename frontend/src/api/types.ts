@@ -40,6 +40,28 @@ export interface RequirementMatchData {
   explanation: string;
   match_kind: string;
   evidence: { entity_type: string; entity_id: string; evidence: string; source: string }[];
+  qualification_evaluation?: {
+    status?: RequirementMatchData["status"];
+    selected_path_index?: number | null;
+    path_results?: {
+      path_index: number;
+      label: string;
+      status: RequirementMatchData["status"];
+    }[];
+  };
+}
+
+export interface QualificationPredicate {
+  kind: "degree_level" | "relevant_experience" | "education_field" | "certification" | "language" | "skill" | "other";
+  value?: string;
+  minimum_level?: string;
+  minimum_years?: number | null;
+  terms?: string[];
+}
+
+export interface QualificationPath {
+  label: string;
+  predicates: QualificationPredicate[];
 }
 
 export interface Requirement {
@@ -49,6 +71,7 @@ export interface Requirement {
   requirement_type: string;
   importance: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   keywords: string[];
+  qualification_paths?: QualificationPath[];
   match?: RequirementMatchData | null;
 }
 
@@ -168,6 +191,7 @@ export interface CVContent {
   summary: string;
   summary_evidence_ids: string[];
   experience: {
+    experience_id?: string;
     organization: string;
     job_title: string;
     start_date: string;
@@ -217,6 +241,8 @@ export interface WorkflowRun {
   current_stage: string;
   stages: { name: string; status: string; error?: string }[];
   workflow_type: string;
+  error?: string;
+  updated_at?: string;
 }
 
 export interface DashboardStats {
@@ -285,6 +311,25 @@ export interface IngestResult {
   proposals_count: number;
   created?: Record<string, number>;
   note?: string;
+}
+
+export interface CareerNarrative {
+  title?: string;
+  period?: string;
+  text?: string;
+  narrative?: string;
+}
+
+export interface CareerProfile {
+  full_name: string;
+  headline: string;
+  summary: string;
+  email: string;
+  phone: string;
+  location: string;
+  links: Record<string, string>;
+  preferred_positioning: string;
+  career_narratives: CareerNarrative[];
 }
 
 export interface CareerExperience {

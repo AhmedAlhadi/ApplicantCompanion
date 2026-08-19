@@ -2,6 +2,12 @@
 previews, and as the basis for PDF/DOCX export)."""
 from __future__ import annotations
 
+from ..evidence_citations import strip_inline_evidence
+
+
+def _visible_text(text: str | None) -> str:
+    return strip_inline_evidence(text or "")[0]
+
 
 def render_cv_text(content: dict, profile: dict | None = None) -> str:
     profile = profile or {}
@@ -19,7 +25,7 @@ def render_cv_text(content: dict, profile: dict | None = None) -> str:
     lines.append("")
 
     if content.get("summary"):
-        lines += ["PROFESSIONAL SUMMARY", content["summary"], ""]
+        lines += ["PROFESSIONAL SUMMARY", _visible_text(content["summary"]), ""]
 
     if content.get("experience"):
         lines.append("PROFESSIONAL EXPERIENCE")
@@ -33,7 +39,9 @@ def render_cv_text(content: dict, profile: dict | None = None) -> str:
                 lines.append(dates)
             for bullet in entry.get("bullets", []):
                 text = bullet.get("text", bullet) if isinstance(bullet, dict) else str(bullet)
-                lines.append(f"• {text}")
+                visible = _visible_text(str(text))
+                if visible:
+                    lines.append(f"• {visible}")
             lines.append("")
 
     if content.get("skills"):
@@ -89,8 +97,9 @@ def render_cover_letter_text(content: dict, profile: dict | None = None) -> str:
     lines += [content.get("salutation", "Dear Hiring Manager,"), ""]
     for para in content.get("paragraphs", []):
         text = para.get("text", "") if isinstance(para, dict) else str(para)
-        if text:
-            lines += [text, ""]
+        visible = _visible_text(str(text))
+        if visible:
+            lines += [visible, ""]
     lines.append(content.get("closing", "Sincerely,"))
     return "\n".join(lines).strip()
 

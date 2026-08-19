@@ -19,9 +19,24 @@ class CandidateMatchingAgent(BaseAgent):
     task = "matching"
     prompt_name = "candidate_matching"
     output_model = MatchingResult
+    validation_retries = 2
+    max_tokens = 8192
 
-    def build_user_message(self, *, requirements: list[dict], evidence: list[dict], **_) -> str:
-        payload = {"requirements": requirements, "evidence": evidence}
+    def build_user_message(
+        self,
+        *,
+        requirements: list[dict],
+        evidence: list[dict],
+        evidence_by_requirement: dict[str, list[dict]] | None = None,
+        structured_facts: dict[str, dict[str, list[dict]]] | None = None,
+        **_,
+    ) -> str:
+        payload = {
+            "requirements": requirements,
+            "evidence": evidence,
+            "evidence_by_requirement": evidence_by_requirement or {},
+            "structured_facts": structured_facts or {},
+        }
         return self.prompt.render_user(payload_json=json.dumps(payload))
 
 
@@ -65,6 +80,8 @@ class CVAgent(BaseAgent):
     task = "cv_generation"
     prompt_name = "cv_generation"
     output_model = GeneratedCV
+    validation_retries = 1
+    max_tokens = 8192
 
     def build_user_message(self, **payload) -> str:
         return self.prompt.render_user(payload_json=json.dumps(payload))
@@ -75,6 +92,8 @@ class CoverLetterAgent(BaseAgent):
     task = "cover_letter"
     prompt_name = "cover_letter_generation"
     output_model = GeneratedCoverLetter
+    validation_retries = 1
+    max_tokens = 4096
 
     def build_user_message(self, **payload) -> str:
         return self.prompt.render_user(payload_json=json.dumps(payload))

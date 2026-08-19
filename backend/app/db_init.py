@@ -18,21 +18,50 @@ logger = logging.getLogger(__name__)
 
 def create_schema() -> None:
     Base.metadata.create_all(bind=engine)
-    _ensure_achievement_parent_columns()
+    _ensure_additive_columns()
     logger.info("Database schema ensured.")
 
 
-def _ensure_achievement_parent_columns() -> None:
+def _json_default(value: str) -> str:
+    """Return a dialect-safe JSON literal for ALTER TABLE defaults."""
+    literal = f"'{value}'"
+    if engine.dialect.name == "postgresql":
+        return f"{literal}::json"
+    return literal
+
+
+def _table_columns(insp, table: str) -> set[str]:
+    if table not in insp.get_table_names():
+        return set()
+    return {c["name"] for c in insp.get_columns(table)}
+
+
+def _ensure_additive_columns() -> None:
     """create_all does not ALTER existing tables — patch additive columns."""
     insp = inspect(engine)
-    if "achievements" not in insp.get_table_names():
-        return
-    cols = {c["name"] for c in insp.get_columns("achievements")}
     statements: list[str] = []
-    if "project_id" not in cols:
-        statements.append("ALTER TABLE achievements ADD COLUMN project_id VARCHAR(36)")
-    if "education_id" not in cols:
-        statements.append("ALTER TABLE achievements ADD COLUMN education_id VARCHAR(36)")
+
+    achievement_cols = _table_columns(insp, "achievements")
+    if achievement_cols:
+        if "project_id" not in achievement_cols:
+            statements.append("ALTER TABLE achievements ADD COLUMN project_id VARCHAR(36)")
+        if "education_id" not in achievement_cols:
+            statements.append("ALTER TABLE achievements ADD COLUMN education_id VARCHAR(36)")
+
+    requirement_cols = _table_columns(insp, "job_requirements")
+    if requirement_cols and "qualification_paths" not in requirement_cols:
+        statements.append(
+            "ALTER TABLE job_requirements ADD COLUMN qualification_paths "
+            f"JSON NOT NULL DEFAULT {_json_default('[]')}"
+        )
+
+    match_cols = _table_columns(insp, "requirement_matches")
+    if match_cols and "qualification_evaluation" not in match_cols:
+        statements.append(
+            "ALTER TABLE requirement_matches ADD COLUMN qualification_evaluation "
+            f"JSON NOT NULL DEFAULT {_json_default('{}')}"
+        )
+
     if not statements:
         return
     with engine.begin() as conn:

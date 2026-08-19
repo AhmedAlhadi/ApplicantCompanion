@@ -16,6 +16,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    if "pending_ingestions" in insp.get_table_names():
+        return
     op.create_table(
         "pending_ingestions",
         sa.Column("id", sa.String(length=36), primary_key=True),

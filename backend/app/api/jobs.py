@@ -1,10 +1,13 @@
 """Job endpoints: creation, analysis workflow, scores, research (§48, §52)."""
 from __future__ import annotations
+import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from ..agents.orchestrator import Orchestrator
+from ..config import get_settings
 from ..database import SessionLocal, get_db
 from ..models import (
     HiringContext,
@@ -23,6 +26,7 @@ from ..services.serializers import to_dict
 from ..workers.runner import submit
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+logger = logging.getLogger(__name__)
 
 
 def _get_owned_job(db: Session, job_id: str, user: User) -> Job:
@@ -39,10 +43,72 @@ def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_res
         job = db.get(Job, job_id)
         user = db.get(User, user_id)
         run = db.get(WorkflowRun, run_id)
-        if job and user and run:
-            run.status = "RUNNING"
-            db.flush()
-            Orchestrator(db, user).run_job_analysis(job, include_research=include_research, run=run)
+        if not job or not user or not run:
+            raise RuntimeError("analysis entities no longer exist")
+        run.status = "RUNNING"
+        db.flush()
+        Orchestrator(db, user).run_job_analysis(job, include_research=include_research, run=run)
+    except Exception as exc:
+        logger.exception("Job analysis failed unexpectedly for run %s", run_id)
+        db.rollback()
+        run = db.get(WorkflowRun, run_id)
+        job = db.get(Job, job_id)
+        if run:
+            stages = [dict(stage) for stage in run.stages]
+            for stage in stages:
+                if stage.get("status") == "RUNNING":
+                    stage["status"] = "FAILED"
+                    stage["ended_at"] = datetime.now(timezone.utc).isoformat()
+                    stage["error"] = str(exc)[:1000]
+            run.stages = stages
+            run.status = "FAILED"
+            run.error = str(exc)[:2000]
+        if job:
+            job.status = "failed"
+        db.commit()
+    finally:
+        db.close()
+
+
+def reconcile_stale_analysis_runs() -> int:
+    """Terminalize orphaned in-process jobs after crashes or restarts."""
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=get_settings().workflow_lease_seconds
+        )
+        runs = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.workflow_type == "job_analysis",
+                WorkflowRun.status.in_(("PENDING", "RUNNING")),
+            )
+            .all()
+        )
+        stale = []
+        for run in runs:
+            updated_at = run.updated_at
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if updated_at < cutoff:
+                stale.append(run)
+        for run in stale:
+            run.status = "FAILED"
+            run.error = "Analysis lease expired before completion"
+            stages = [dict(stage) for stage in run.stages]
+            for stage in stages:
+                if stage.get("status") in ("PENDING", "RUNNING"):
+                    stage["status"] = "FAILED" if stage.get("status") == "RUNNING" else "SKIPPED"
+                    stage["ended_at"] = datetime.now(timezone.utc).isoformat()
+                    if stage["status"] == "FAILED":
+                        stage["error"] = run.error
+            run.stages = stages
+            if run.job_id:
+                job = db.get(Job, run.job_id)
+                if job and job.status == "analyzing":
+                    job.status = "failed"
+        db.commit()
+        return len(stale)
     finally:
         db.close()
 
@@ -135,6 +201,26 @@ def analyze_job(job_id: str, payload: AnalyzeRequest | None = None, db: Session 
         )
         .first()
     )
+    if run is not None:
+        updated_at = run.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=get_settings().workflow_lease_seconds
+        )
+        if updated_at < cutoff:
+            run.status = "FAILED"
+            run.error = "Analysis lease expired; superseded by a new run"
+            stages = [dict(stage) for stage in run.stages]
+            for stage in stages:
+                if stage.get("status") in ("PENDING", "RUNNING"):
+                    stage["status"] = "FAILED" if stage.get("status") == "RUNNING" else "SKIPPED"
+                    stage["ended_at"] = datetime.now(timezone.utc).isoformat()
+                    if stage["status"] == "FAILED":
+                        stage["error"] = run.error
+            run.stages = stages
+            db.commit()
+            run = None
     if run is None:
         # Create the run row synchronously so clients get its id immediately,
         # then execute in the background (§53).

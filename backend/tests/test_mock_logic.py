@@ -131,3 +131,52 @@ Preferred:
 - PRINCE2 or PMP certification
 - Knowledge of French is an asset
 """
+
+
+class TestCVGeneration:
+    def test_includes_every_experience(self):
+        import json
+
+        payload = {
+            "job": {"position_title": "Information Management Officer", "parsed": {"keywords": [{"term": "Power BI"}]}},
+            "strategy": {"priority_experience": ["e1"], "de_emphasis": ["e3"]},
+            "profile": {},
+            "experiences": [
+                {
+                    "id": "e1",
+                    "organization": "UNDP",
+                    "job_title": "IMO",
+                    "start_date": "2022-01",
+                    "end_date": "",
+                    "achievements": [{"id": "a1", "description": "Built Power BI dashboards"}],
+                    "responsibilities": ["Lead IM"],
+                },
+                {
+                    "id": "e2",
+                    "organization": "FAO",
+                    "job_title": "Analyst",
+                    "start_date": "2019-01",
+                    "end_date": "2021-12",
+                    "responsibilities": ["Prepared statistical yearbooks"],
+                },
+                {
+                    "id": "e3",
+                    "organization": "NGO",
+                    "job_title": "Intern",
+                    "start_date": "2016-01",
+                    "end_date": "2016-08",
+                    "responsibilities": ["Filed archives"],
+                },
+            ],
+            "skills": [],
+            "education": [],
+            "certifications": [],
+            "languages": [],
+            "matches": [],
+        }
+        result = mock_logic.mock_cv_generation(f"```json\n{json.dumps(payload)}\n```")
+        assert [e["organization"] for e in result["experience"]] == ["UNDP", "FAO", "NGO"]
+        assert all(e["experience_id"] for e in result["experience"])
+        intern = result["experience"][2]
+        assert len(intern["bullets"]) <= 2
+

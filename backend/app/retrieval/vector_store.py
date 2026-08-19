@@ -105,7 +105,9 @@ class QdrantVectorStore(VectorStore):
         settings = get_settings()
         self._collection = settings.qdrant_collection
         self._client = QdrantClient(
-            url=settings.qdrant_url, api_key=settings.qdrant_api_key or None
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key or None,
+            timeout=settings.qdrant_timeout_seconds,
         )
         existing = {c.name for c in self._client.get_collections().collections}
         if self._collection not in existing:

@@ -1,10 +1,13 @@
 """Application endpoints: creation, decision (§20-21), strategy, generation (§49, §52)."""
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from ..agents.orchestrator import Orchestrator
+from ..agents.orchestrator import Orchestrator, generation_stages
 from ..database import SessionLocal, get_db
 from ..models import (
     Application,
@@ -23,6 +26,7 @@ from ..services.serializers import to_dict
 from ..workers.runner import submit
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
+logger = logging.getLogger(__name__)
 
 BELOW_THRESHOLD_MESSAGE = (
     "Generation is blocked until you approve continuing with a below-threshold fit score. "
@@ -142,19 +146,50 @@ def get_strategy(app_id: str, db: Session = Depends(get_db), user: User = Depend
 @router.post("/{app_id}/strategy", status_code=202)
 def generate_strategy(app_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     app = _get_owned_app(db, app_id, user)
+    run = Orchestrator(db, user).create_run(
+        "document_generation",
+        generation_stages(strategy_only=True),
+        job_id=app.job_id,
+        application_id=app.id,
+    )
+    db.commit()
+    submit(_run_strategy_background, app.id, user.id, run.id)
+    return {"status": "accepted", "workflow_run_id": run.id}
 
-    def _bg(app_id=app.id, user_id=user.id):
-        db2 = SessionLocal()
-        try:
-            app2 = db2.get(Application, app_id)
-            user2 = db2.get(User, user_id)
-            if app2 and user2:
-                Orchestrator(db2, user2).run_strategy(app2)
-        finally:
-            db2.close()
 
-    submit(_bg)
-    return {"status": "accepted"}
+def _fail_run(db: Session, run_id: str, exc: Exception) -> None:
+    run = db.get(WorkflowRun, run_id)
+    if run is None:
+        return
+    stages = [dict(stage) for stage in run.stages]
+    for stage in stages:
+        if stage.get("status") == "RUNNING":
+            stage["status"] = "FAILED"
+            stage["ended_at"] = datetime.now(timezone.utc).isoformat()
+            stage["error"] = str(exc)[:1000]
+    run.stages = stages
+    run.status = "FAILED"
+    run.error = str(exc)[:2000]
+
+
+def _run_strategy_background(app_id: str, user_id: str, run_id: str) -> None:
+    db = SessionLocal()
+    try:
+        app = db.get(Application, app_id)
+        user = db.get(User, user_id)
+        run = db.get(WorkflowRun, run_id)
+        if not app or not user or not run:
+            raise RuntimeError("strategy entities no longer exist")
+        run.status = "RUNNING"
+        db.flush()
+        Orchestrator(db, user).run_strategy(app, run=run)
+    except Exception as exc:
+        logger.exception("Strategy generation failed unexpectedly for run %s", run_id)
+        db.rollback()
+        _fail_run(db, run_id, exc)
+        db.commit()
+    finally:
+        db.close()
 
 
 def _check_threshold_gate(db: Session, app: Application) -> None:
@@ -189,41 +224,70 @@ def decide(app_id: str, payload: DecideRequest, request: Request, db: Session = 
     return _app_payload(db, app)
 
 
-def _run_generation_background(app_id: str, user_id: str, gen_cv: bool, gen_cl: bool, template_key: str | None) -> None:
+def _run_generation_background(
+    app_id: str,
+    user_id: str,
+    run_id: str,
+    gen_cv: bool,
+    gen_cl: bool,
+    template_key: str | None,
+) -> None:
     db = SessionLocal()
     try:
         app = db.get(Application, app_id)
         user = db.get(User, user_id)
-        if app and user:
-            Orchestrator(db, user).run_generation(
-                app, generate_cv=gen_cv, generate_cover_letter=gen_cl, template_key=template_key
-            )
+        run = db.get(WorkflowRun, run_id)
+        if not app or not user or not run:
+            raise RuntimeError("generation entities no longer exist")
+        run.status = "RUNNING"
+        db.flush()
+        Orchestrator(db, user).run_generation(
+            app,
+            generate_cv=gen_cv,
+            generate_cover_letter=gen_cl,
+            template_key=template_key,
+            run=run,
+        )
+    except Exception as exc:
+        logger.exception("Document generation failed unexpectedly for run %s", run_id)
+        db.rollback()
+        _fail_run(db, run_id, exc)
+        db.commit()
     finally:
         db.close()
+
+
+def _accept_generation(db: Session, app: Application, user: User, gen_cv: bool, gen_cl: bool, template_key: str | None) -> dict:
+    run = Orchestrator(db, user).create_run(
+        "document_generation",
+        generation_stages(generate_cv=gen_cv, generate_cover_letter=gen_cl),
+        job_id=app.job_id,
+        application_id=app.id,
+    )
+    db.commit()
+    submit(_run_generation_background, app.id, user.id, run.id, gen_cv, gen_cl, template_key)
+    return {"status": "accepted", "workflow_run_id": run.id}
 
 
 @router.post("/{app_id}/generate-cv", status_code=202)
 def generate_cv(app_id: str, payload: GenerateRequest | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     app = _get_owned_app(db, app_id, user)
     _check_threshold_gate(db, app)
-    submit(_run_generation_background, app.id, user.id, True, False, payload.template_key if payload else None)
-    return {"status": "accepted"}
+    return _accept_generation(db, app, user, True, False, payload.template_key if payload else None)
 
 
 @router.post("/{app_id}/generate-cover-letter", status_code=202)
 def generate_cover_letter(app_id: str, payload: GenerateRequest | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     app = _get_owned_app(db, app_id, user)
     _check_threshold_gate(db, app)
-    submit(_run_generation_background, app.id, user.id, False, True, payload.template_key if payload else None)
-    return {"status": "accepted"}
+    return _accept_generation(db, app, user, False, True, payload.template_key if payload else None)
 
 
 @router.post("/{app_id}/generate-all", status_code=202)
 def generate_all(app_id: str, payload: GenerateRequest | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     app = _get_owned_app(db, app_id, user)
     _check_threshold_gate(db, app)
-    submit(_run_generation_background, app.id, user.id, True, True, payload.template_key if payload else None)
-    return {"status": "accepted"}
+    return _accept_generation(db, app, user, True, True, payload.template_key if payload else None)
 
 
 @router.get("/{app_id}/documents")

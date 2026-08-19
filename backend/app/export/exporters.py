@@ -3,6 +3,12 @@ from __future__ import annotations
 
 import io
 
+from ..evidence_citations import strip_inline_evidence
+
+
+def _visible_text(text: str | None) -> str:
+    return strip_inline_evidence(text or "")[0]
+
 
 def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
     hex_color = hex_color.lstrip("#")
@@ -91,7 +97,7 @@ def export_pdf(document_type: str, content: dict, profile: dict, template_config
 
         if content.get("summary"):
             story.append(Paragraph("PROFESSIONAL SUMMARY", h_style))
-            story.append(Paragraph(content["summary"], b_style))
+            story.append(Paragraph(_visible_text(content["summary"]), b_style))
 
         if content.get("experience"):
             story.append(Paragraph("PROFESSIONAL EXPERIENCE", h_style))
@@ -105,7 +111,9 @@ def export_pdf(document_type: str, content: dict, profile: dict, template_config
                     story.append(Paragraph(meta, date_style))
                 for bullet in entry.get("bullets", []):
                     text = bullet.get("text", bullet) if isinstance(bullet, dict) else str(bullet)
-                    story.append(Paragraph(text, bullet_style, bulletText=bullet_char))
+                    visible = _visible_text(str(text))
+                    if visible:
+                        story.append(Paragraph(visible, bullet_style, bulletText=bullet_char))
 
         if content.get("skills"):
             story.append(Paragraph("SKILLS", h_style))
@@ -151,8 +159,9 @@ def export_pdf(document_type: str, content: dict, profile: dict, template_config
         story.append(Spacer(1, 3 * mm))
         for para in content.get("paragraphs", []):
             text = para.get("text", "") if isinstance(para, dict) else str(para)
-            if text:
-                story.append(Paragraph(text, b_style))
+            visible = _visible_text(str(text))
+            if visible:
+                story.append(Paragraph(visible, b_style))
                 story.append(Spacer(1, 3 * mm))
         story.append(Spacer(1, 4 * mm))
         for line in content.get("closing", "Sincerely,").split("\n"):
@@ -204,7 +213,7 @@ def export_docx(document_type: str, content: dict, profile: dict, template_confi
 
         if content.get("summary"):
             heading("PROFESSIONAL SUMMARY")
-            document.add_paragraph(content["summary"])
+            document.add_paragraph(_visible_text(content["summary"]))
         if content.get("experience"):
             heading("PROFESSIONAL EXPERIENCE")
             for entry in content["experience"]:
@@ -216,7 +225,9 @@ def export_docx(document_type: str, content: dict, profile: dict, template_confi
                 if meta:
                     document.add_paragraph(meta)
                 for b in entry.get("bullets", []):
-                    bullet(b.get("text", b) if isinstance(b, dict) else str(b))
+                    visible = _visible_text(str(b.get("text", b) if isinstance(b, dict) else b))
+                    if visible:
+                        bullet(visible)
         if content.get("skills"):
             heading("SKILLS")
             document.add_paragraph(", ".join(content["skills"]))
@@ -254,8 +265,9 @@ def export_docx(document_type: str, content: dict, profile: dict, template_confi
         document.add_paragraph(content.get("salutation", "Dear Hiring Manager,"))
         for para in content.get("paragraphs", []):
             text = para.get("text", "") if isinstance(para, dict) else str(para)
-            if text:
-                document.add_paragraph(text)
+            visible = _visible_text(str(text))
+            if visible:
+                document.add_paragraph(visible)
         for line in content.get("closing", "Sincerely,").split("\n"):
             document.add_paragraph(line)
 

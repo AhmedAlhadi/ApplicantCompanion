@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { AppDocument, Application, JobScore, Strategy, Template } from "../api/types";
-import { Empty, ErrorBox, ProgressStages, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+import { Empty, ErrorBox, ProgressBar, ProgressStages, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
 
 type ThresholdGate = {
   code?: string;
@@ -32,6 +32,7 @@ export default function ApplicationDetail() {
   const templates = useApi<Template[]>(() => api.get("/api/templates"));
   const [templateKey, setTemplateKey] = useState("minimal-ats");
   const [busy, setBusy] = useState<string | null>(null);
+  const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
   const [gate, setGate] = useState<ThresholdGate | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,11 +42,17 @@ export default function ApplicationDetail() {
     [a?.job_id]
   );
 
-  const workflowPoll = useWorkflow(null, busy ? `/api/applications/${id}/workflow` : null, () => {
-    setBusy(null);
-    docs.reload();
-    app.reload();
-  });
+  const workflowPoll = useWorkflow(
+    workflowRunId,
+    workflowRunId ? `/api/applications/${id}/workflow` : null,
+    () => {
+      setBusy(null);
+      setWorkflowRunId(null);
+      docs.reload();
+      app.reload();
+      strategy.reload();
+    },
+  );
 
   const belowThreshold =
     !!score.data &&
@@ -82,7 +89,11 @@ export default function ApplicationDetail() {
     setError(null);
     setGate(null);
     try {
-      await api.post(`/api/applications/${id}/generate-${kind}`, { template_key: templateKey });
+      const accepted = await api.post<{ workflow_run_id: string }>(
+        `/api/applications/${id}/generate-${kind}`,
+        { template_key: templateKey },
+      );
+      setWorkflowRunId(accepted.workflow_run_id);
     } catch (err) {
       setBusy(null);
       if (err instanceof ApiError && err.status === 409 && isThresholdGate(err.detail)) {
@@ -103,8 +114,14 @@ export default function ApplicationDetail() {
 
   const runStrategy = async () => {
     setBusy("strategy");
-    await api.post(`/api/applications/${id}/strategy`);
-    setTimeout(() => { strategy.reload(); setBusy(null); }, 2500);
+    setError(null);
+    try {
+      const accepted = await api.post<{ workflow_run_id: string }>(`/api/applications/${id}/strategy`);
+      setWorkflowRunId(accepted.workflow_run_id);
+    } catch (err) {
+      setBusy(null);
+      setError(err instanceof Error ? err.message : "Strategy generation failed");
+    }
   };
 
   if (app.loading) return <p className="muted">Loading…</p>;
@@ -179,9 +196,15 @@ export default function ApplicationDetail() {
         ) : (
           <p className="muted small">No strategy yet.</p>
         )}
-        <button className="sm mt" onClick={runStrategy} disabled={busy === "strategy"}>
+        <button className="sm mt" onClick={runStrategy} disabled={!!busy}>
           {busy === "strategy" ? <Spinner /> : null} {strategy.data ? "Regenerate strategy" : "Generate strategy"}
         </button>
+        {busy === "strategy" && (
+          <div className="mt">
+            <ProgressBar label="Generating application strategy…" />
+            <ProgressStages workflow={workflowPoll} />
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -205,6 +228,7 @@ export default function ApplicationDetail() {
         </div>
         {busy && busy !== "strategy" && (
           <div className="mt">
+            <ProgressBar label={busy === "all" ? "Generating CV and cover letter…" : `Generating ${busy.replace("-", " ")}…`} />
             <ProgressStages workflow={workflowPoll} />
           </div>
         )}
