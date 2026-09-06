@@ -86,3 +86,27 @@ def merge_evidence_ids(*groups: list[str] | None) -> list[str]:
 def sanitize_prose_field(text: str | None, existing_ids: list[str] | None = None) -> tuple[str, list[str]]:
     cleaned, extracted = strip_inline_evidence(text)
     return cleaned, merge_evidence_ids(existing_ids, extracted)
+
+
+def cited_ids_from_content(content: dict | None, doc_type: str) -> list[str]:
+    """Collect structured evidence ids plus any UUIDs leaked into visible prose."""
+    content = content or {}
+    cited: list[str] = []
+    if doc_type == "cv":
+        _, summary_ids = sanitize_prose_field(content.get("summary"), content.get("summary_evidence_ids"))
+        cited.extend(summary_ids)
+        for entry in content.get("experience") or []:
+            for bullet in entry.get("bullets") or []:
+                if isinstance(bullet, dict):
+                    _, ids = sanitize_prose_field(bullet.get("text"), bullet.get("evidence_ids"))
+                else:
+                    _, ids = strip_inline_evidence(str(bullet))
+                cited.extend(ids)
+    else:
+        for para in content.get("paragraphs") or []:
+            if isinstance(para, str):
+                _, ids = strip_inline_evidence(para)
+            else:
+                _, ids = sanitize_prose_field(para.get("text"), para.get("evidence_ids"))
+            cited.extend(ids)
+    return merge_evidence_ids(cited)

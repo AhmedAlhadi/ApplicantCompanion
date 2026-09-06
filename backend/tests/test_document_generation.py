@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.evidence_citations import strip_inline_evidence
+from app.evidence_citations import cited_ids_from_content, strip_inline_evidence
 from app.prompts.registry import load_prompt
 from app.schemas.agents import CoverLetterParagraph, GeneratedCoverLetter, GeneratedCV
 from app.services.document_postprocess import ensure_all_experiences, sanitize_cover_letter_content
@@ -132,6 +132,100 @@ def test_ensure_all_experiences_fills_roles_the_model_omitted():
     assert intern["experience_id"] == "e3"
     assert intern["bullets"]
     assert len(intern["bullets"]) <= 2
+
+
+def test_cited_ids_include_inline_leaked_evidence():
+    ids = cited_ids_from_content(
+        {
+            "summary": "Lead. (Evidence: 387bfed5-433b-4291-b28a-720c01d5ed3c)",
+            "summary_evidence_ids": [],
+            "experience": [{
+                "bullets": [{
+                    "text": "Built dashboards (Evidence: 567fc646-37d9-4a6a-9f15-9d08cca3dd05)",
+                    "evidence_ids": ["11111111-1111-1111-1111-111111111111"],
+                }]
+            }],
+        },
+        "cv",
+    )
+    assert ids == [
+        "387bfed5-433b-4291-b28a-720c01d5ed3c",
+        "11111111-1111-1111-1111-111111111111",
+        "567fc646-37d9-4a6a-9f15-9d08cca3dd05",
+    ]
+
+
+def test_cited_ids_from_cover_letter_paragraphs():
+    ids = cited_ids_from_content(
+        {
+            "paragraphs": [{
+                "text": "I led UNICEF IM work (Evidence: 387bfed5-433b-4291-b28a-720c01d5ed3c).",
+                "evidence_ids": [],
+            }]
+        },
+        "cover_letter",
+    )
+    assert ids == ["387bfed5-433b-4291-b28a-720c01d5ed3c"]
+
+
+def test_relevant_bullets_fill_related_when_few_direct_matches():
+    experiences = [{
+        "id": "e1",
+        "organization": "UNDP",
+        "job_title": "Information Management Officer",
+        "start_date": "2022-01",
+        "end_date": "Present",
+        "achievements": [
+            {"id": "a1", "description": "Built Power BI dashboards for programme monitoring"},
+            {"id": "a2", "description": "Mentored junior analysts on reporting hygiene"},
+            {"id": "a3", "description": "Coordinated weekly team stand-ups"},
+        ],
+        "responsibilities": ["Managed vendor contracts", "Led digital transformation"],
+    }]
+    result = ensure_all_experiences(
+        {"experience": []},
+        experiences,
+        strategy={"priority_experience": ["e1"], "keywords": ["Power BI"]},
+        job={"position_title": "Data Viz Specialist", "parsed": {"keywords": [{"term": "Power BI"}]}},
+        matches=[],
+    )
+    bullets = result["experience"][0]["bullets"]
+    assert bullets[0]["text"].startswith("Built Power BI")
+    assert len(bullets) == 5
+    texts = [b["text"] for b in bullets]
+    assert "Mentored junior analysts on reporting hygiene" in texts
+    assert "Led digital transformation" in texts
+
+
+def test_ensure_all_experiences_sorts_by_start_date_newest_first():
+    experiences = [
+        {
+            "id": "old",
+            "organization": "Local NGO",
+            "job_title": "Intern",
+            "start_date": "2016-01",
+            "end_date": "2018-01",
+            "responsibilities": ["Filed archives"],
+        },
+        {
+            "id": "current",
+            "organization": "FAO",
+            "job_title": "Analyst",
+            "start_date": "2019-06",
+            "end_date": "Present",
+            "responsibilities": ["Prepared yearbooks"],
+        },
+        {
+            "id": "recent",
+            "organization": "UNDP",
+            "job_title": "IMO",
+            "start_date": "2022-01",
+            "end_date": "2023-01",
+            "responsibilities": ["Built dashboards"],
+        },
+    ]
+    result = ensure_all_experiences({"experience": []}, experiences, strategy={}, job={}, matches=[])
+    assert [entry["organization"] for entry in result["experience"]] == ["UNDP", "FAO", "Local NGO"]
 
 
 def test_cv_schema_strips_inline_ids_from_bullets():

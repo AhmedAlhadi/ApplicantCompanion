@@ -20,6 +20,7 @@ from ..models import (
 )
 from ..schemas.api import DocumentUpdateRequest, RegenerateSectionRequest
 from ..security.auth import audit, get_current_user
+from ..evidence_citations import cited_ids_from_content
 from ..services.documents import DocumentService
 from ..services.serializers import evidence_for_entity, to_dict
 
@@ -103,15 +104,7 @@ def document_evidence(document_id: str, db: Session = Depends(get_db), user: Use
     if current is None:
         raise HTTPException(404, "No version generated yet")
     content = current.content
-    cited: list[str] = []
-    if doc_type == "cv":
-        for entry in content.get("experience", []):
-            for bullet in entry.get("bullets", []):
-                cited.extend(bullet.get("evidence_ids", []))
-        cited.extend(content.get("summary_evidence_ids", []))
-    else:
-        for para in content.get("paragraphs", []):
-            cited.extend(para.get("evidence_ids", []))
+    cited = cited_ids_from_content(content, doc_type)
     entity_type_map = {"cv": "experience", "cover_letter": "experience"}
     panels = []
     seen = set()
@@ -119,7 +112,7 @@ def document_evidence(document_id: str, db: Session = Depends(get_db), user: Use
         if not eid or eid in seen:
             continue
         seen.add(eid)
-        for etype in ("experience", "achievement", "skill", "project"):
+        for etype in ("experience", "achievement", "skill", "project", "education", "certification"):
             rows = evidence_for_entity(db, user.id, etype, eid)
             if rows:
                 panels.append({"entity_type": etype, "entity_id": eid, "evidence": rows})

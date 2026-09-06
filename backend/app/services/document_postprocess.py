@@ -26,10 +26,21 @@ def _same_role(left_org: str | None, left_title: str | None, right_org: str | No
     return bool(left and right and (left in right or right in left))
 
 
+_OPEN_ENDED = {"", "present", "current", "now", "ongoing"}
+
+
+def _normalize_date(value: str | None, *, empty: str) -> str:
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in _OPEN_ENDED:
+        return empty
+    return raw
+
+
 def _date_sort_key(entry: dict[str, Any]) -> tuple[str, str]:
-    end = entry.get("end_date") or "9999-12"
-    start = entry.get("start_date") or "0000-00"
-    return (str(end), str(start))
+    """Newest start_date first; treat Present/empty end dates as open-ended."""
+    start = _normalize_date(entry.get("start_date"), empty="0000-00")
+    end = _normalize_date(entry.get("end_date"), empty="9999-12")
+    return (start, end)
 
 
 def relevance_terms(job: dict | None, strategy: dict | None, matches: list[dict] | None) -> set[str]:
@@ -109,10 +120,10 @@ def relevant_bullets_for_experience(
         description = (experience.get("description") or "").strip()
         if description:
             candidates.append((_score_text(description, terms), 0, description, [exp_id] if exp_id else []))
-    relevant = [c for c in candidates if c[0] > 0]
-    pool = relevant or candidates
-    pool.sort(key=lambda item: (-item[0], item[1]))
-    selected = pool[: max(1, max_bullets)] if pool else []
+    # Direct keyword matches first, then fill remaining slots with next-best
+    # related activities so a role is not undersold by a single hit.
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    selected = candidates[: max(1, max_bullets)] if candidates else []
     return [{"text": text, "evidence_ids": eids} for _, _, text, eids in selected]
 
 

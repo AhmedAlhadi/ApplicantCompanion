@@ -12,7 +12,11 @@ import re
 from collections import Counter
 
 from ..qualification import degree_level, evaluate_qualification_paths
-from ..services.document_postprocess import relevance_terms, relevant_bullets_for_experience
+from ..services.document_postprocess import (
+    _date_sort_key,
+    relevance_terms,
+    relevant_bullets_for_experience,
+)
 
 # ── shared helpers ───────────────────────────────────────────────────────────
 
@@ -1181,10 +1185,7 @@ def mock_cv_generation(user_message: str) -> dict:
     priority_skills = [s.lower() for s in strategy.get("priority_skills", [])]
     terms = relevance_terms(job, strategy, payload.get("matches") or [])
 
-    def date_key(e):
-        return (e.get("end_date") or "9999-12", e.get("start_date") or "0000-00")
-
-    ordered_exp = sorted(experiences, key=date_key, reverse=True)
+    ordered_exp = sorted(experiences, key=_date_sort_key, reverse=True)
 
     exp_entries = []
     for e in ordered_exp:

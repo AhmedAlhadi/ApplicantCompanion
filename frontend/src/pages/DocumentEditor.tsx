@@ -9,6 +9,33 @@ import { mergeEvidenceIds, stripInlineEvidence } from "../lib/evidenceText";
    sections, regenerate single sections, restore versions, switch templates,
    export PDF/DOCX — with per-bullet "View Evidence" traceability (§32). */
 
+const OPEN_ENDED = new Set(["", "present", "current", "now", "ongoing"]);
+const GENERIC_EVIDENCE = /^(evidence(\s*(&|and)\s*provenance)?|provenance)$/i;
+
+function normalizeDate(value: string | undefined | null, empty: string) {
+  const raw = (value || "").trim();
+  if (!raw || OPEN_ENDED.has(raw.toLowerCase())) return empty;
+  return raw;
+}
+
+function sortExperiencesByDate<T extends { start_date?: string; end_date?: string }>(list: T[]): T[] {
+  return [...list].sort((a, b) => {
+    const aStart = normalizeDate(a.start_date, "0000-00");
+    const aEnd = normalizeDate(a.end_date, "9999-12");
+    const bStart = normalizeDate(b.start_date, "0000-00");
+    const bEnd = normalizeDate(b.end_date, "9999-12");
+    return bStart.localeCompare(aStart) || bEnd.localeCompare(aEnd);
+  });
+}
+
+function evidenceSnippet(ev: { original_text?: string; claim?: string }): string {
+  for (const raw of [ev.original_text, ev.claim]) {
+    const text = (raw || "").trim();
+    if (text && !GENERIC_EVIDENCE.test(text)) return text;
+  }
+  return "";
+}
+
 export default function DocumentEditor() {
   const { id } = useParams<{ id: string }>();
   const doc = useApi<AppDocument>(() => api.get(`/api/documents/${id}`), [id]);
@@ -18,6 +45,7 @@ export default function DocumentEditor() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
+  const [sortByDate, setSortByDate] = useState(true);
 
   const d = doc.data;
   const current = d?.current_version;
@@ -43,10 +71,51 @@ export default function DocumentEditor() {
     }
   };
 
+  const persistContent = async (next: typeof content) => {
+    await api.put(`/api/documents/${d.id}`, { content: next });
+    doc.reload();
+  };
+
+  const persistExperienceOrder = async (experience: CVContent["experience"]) => {
+    setBusy("reorder");
+    setError(null);
+    try {
+      await persistContent({ ...content, experience });
+    } catch {
+      setError("Could not save experience order");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleSortByDate = async () => {
+    if (sortByDate) {
+      setSortByDate(false);
+      return;
+    }
+    setSortByDate(true);
+    const sorted = sortExperiencesByDate(content.experience);
+    const currentOrder = content.experience.map((e) => e.experience_id || `${e.organization}-${e.job_title}`).join("|");
+    const nextOrder = sorted.map((e) => e.experience_id || `${e.organization}-${e.job_title}`).join("|");
+    if (currentOrder !== nextOrder) {
+      await persistExperienceOrder(sorted);
+    }
+  };
+
+  const moveExperience = async (index: number, direction: -1 | 1) => {
+    const next = [...content.experience];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setSortByDate(false);
+    await persistExperienceOrder(next);
+  };
+
   const regenerateSection = async (section: string) => {
     setBusy(section);
     try {
       await api.post(`/api/documents/${d.id}/regenerate-section`, { section });
+      if (section === "experience") setSortByDate(true);
       doc.reload();
     } catch (err: any) {
       setError(typeof err.detail === "string" ? err.detail : "Regeneration failed");
@@ -108,7 +177,20 @@ export default function DocumentEditor() {
             </div>
           ) : (
             <div className="cv-preview">
-              {isCV ? <CVPreview content={content as CVContent} evidenceFor={evidenceFor} onEvidence={setEvidenceFor} docId={d.id} /> : <LetterPreview content={content as unknown as CoverLetterContent} evidenceFor={evidenceFor} onEvidence={setEvidenceFor} docId={d.id} />}
+              {isCV ? (
+                <CVPreview
+                  content={content as CVContent}
+                  evidenceFor={evidenceFor}
+                  onEvidence={setEvidenceFor}
+                  docId={d.id}
+                  sortByDate={sortByDate}
+                  onToggleSort={toggleSortByDate}
+                  onMoveExperience={moveExperience}
+                  reorderBusy={busy === "reorder"}
+                />
+              ) : (
+                <LetterPreview content={content as unknown as CoverLetterContent} evidenceFor={evidenceFor} onEvidence={setEvidenceFor} docId={d.id} />
+              )}
             </div>
           )}
         </div>
@@ -178,28 +260,52 @@ export default function DocumentEditor() {
 
 function EvidencePopover({ docId, ids, onClose }: { docId: string; ids: string[]; onClose: () => void }) {
   const data = useApi<any>(() => api.get(`/api/documents/${docId}/evidence`), [docId]);
-  const panels = (data.data?.traceability ?? []).filter((p: any) => ids.includes(p.entity_id));
+  const wanted = new Set(ids.map((id) => id.toLowerCase()));
+  const panels = (data.data?.traceability ?? []).filter((p: any) => wanted.has(String(p.entity_id || "").toLowerCase()));
+  const rows = panels.flatMap((p: any) =>
+    (p.evidence || []).map((ev: any) => ({ ...ev, snippet: evidenceSnippet(ev) })).filter((ev: any) => ev.snippet),
+  );
   return (
     <div className="evidence-pop">
       <div className="row spread">
         <strong>Evidence & provenance</strong>
         <button className="sm ghost" onClick={onClose}>close</button>
       </div>
-      {panels.length === 0 && <div className="muted small">Resolving evidence…</div>}
-      {panels.map((p: any) =>
-        p.evidence.map((ev: any) => (
-          <div key={ev.id} className="mt small">
-            <div><strong>Source:</strong> {ev.source_document ?? "manual entry"} · {ev.source_section}</div>
-            <div className="muted">“{ev.original_text}”</div>
-            <span className={`badge ${ev.verification_status}`}>{ev.verification_status}</span>
-          </div>
-        ))
+      {data.loading && <div className="muted small">Resolving evidence…</div>}
+      {!data.loading && rows.length === 0 && (
+        <div className="muted small">No provenance snippet is recorded for this claim.</div>
       )}
+      {rows.map((ev: any) => (
+        <div key={ev.id} className="mt small">
+          <div><strong>Source:</strong> {ev.source_document ?? "manual entry"} · {ev.source_section}</div>
+          <div className="muted">“{ev.snippet}”</div>
+          <span className={`badge ${ev.verification_status}`}>{ev.verification_status}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
-function CVPreview({ content, evidenceFor, onEvidence, docId }: { content: CVContent; evidenceFor: string | null; onEvidence: (k: string | null) => void; docId: string }) {
+function CVPreview({
+  content,
+  evidenceFor,
+  onEvidence,
+  docId,
+  sortByDate,
+  onToggleSort,
+  onMoveExperience,
+  reorderBusy,
+}: {
+  content: CVContent;
+  evidenceFor: string | null;
+  onEvidence: (k: string | null) => void;
+  docId: string;
+  sortByDate: boolean;
+  onToggleSort: () => void;
+  onMoveExperience: (index: number, direction: -1 | 1) => void;
+  reorderBusy: boolean;
+}) {
+  const experiences = sortByDate ? sortExperiencesByDate(content.experience) : content.experience;
   return (
     <>
       <h2 style={{ border: "none", margin: "0 0 4px" }}>{content.headline}</h2>
@@ -209,11 +315,27 @@ function CVPreview({ content, evidenceFor, onEvidence, docId }: { content: CVCon
           <p>{stripInlineEvidence(content.summary).text}</p>
         </>
       )}
-      <h2>Professional Experience</h2>
-      {content.experience.map((e, i) => (
-        <div key={i}>
-          <div className="cv-entry-title">{e.job_title}, {e.organization}</div>
-          <div className="cv-dates">{[e.start_date, e.end_date].filter(Boolean).join(" – ")}{e.location ? ` · ${e.location}` : ""}</div>
+      <div className="cv-section-head">
+        <h2>Professional Experience</h2>
+        <label className="cv-sort-toggle">
+          <input type="checkbox" checked={sortByDate} onChange={onToggleSort} disabled={reorderBusy} />
+          Sort by date
+        </label>
+      </div>
+      {experiences.map((e, i) => (
+        <div key={e.experience_id || `${e.organization}-${e.job_title}-${i}`}>
+          <div className="cv-entry-head">
+            <div>
+              <div className="cv-entry-title">{e.job_title}, {e.organization}</div>
+              <div className="cv-dates">{[e.start_date, e.end_date].filter(Boolean).join(" – ")}{e.location ? ` · ${e.location}` : ""}</div>
+            </div>
+            {!sortByDate && (
+              <div className="cv-reorder">
+                <button className="sm ghost" disabled={reorderBusy || i === 0} onClick={() => onMoveExperience(i, -1)}>Move up</button>
+                <button className="sm ghost" disabled={reorderBusy || i === experiences.length - 1} onClick={() => onMoveExperience(i, 1)}>Move down</button>
+              </div>
+            )}
+          </div>
           <ul>
             {e.bullets.map((b, j) => {
               const key = `${i}-${j}`;
