@@ -11,6 +11,7 @@ import type {
 } from "../api/types";
 import { CareerEvolution } from "./CareerEvolution";
 import { Empty, useApi } from "./ui";
+import { t } from "../lib/i18n";
 
 export type CareerTabKey =
   | "profile"
@@ -58,20 +59,26 @@ const TYPE_COLOR: Record<NodeType, string> = {
   technology: "#f0a04b",
 };
 
-const TYPE_LABEL: Record<NodeType, string> = {
-  profile: "You",
-  experience: "Role",
-  projects: "Project",
-  skills: "Skill",
-  technology: "Technology",
-};
+function typeLabel(type: NodeType) {
+  const keys: Record<NodeType, string> = {
+    profile: "map.you",
+    experience: "map.role",
+    projects: "map.project",
+    skills: "map.skill",
+    technology: "map.technologies",
+  };
+  return t(keys[type]);
+}
 
-const FILTER_LABEL: Record<Exclude<NodeType, "profile">, string> = {
-  experience: "Roles",
-  projects: "Projects",
-  skills: "Skills",
-  technology: "Technologies",
-};
+function filterLabel(type: Exclude<NodeType, "profile">) {
+  const keys: Record<Exclude<NodeType, "profile">, string> = {
+    experience: "map.roles",
+    projects: "map.projects",
+    skills: "map.skills",
+    technology: "map.technologies",
+  };
+  return t(keys[type]);
+}
 
 const DEFAULT_VISIBLE: Record<Exclude<NodeType, "profile">, boolean> = {
   experience: true,
@@ -96,7 +103,7 @@ function norm(s: string) {
 
 function dateRange(start?: string | null, end?: string | null) {
   if (!start && !end) return "";
-  return [start, end || "Present"].filter(Boolean).join(" – ");
+  return [start, end || t("common.present")].filter(Boolean).join(" – ");
 }
 
 function shorten(value: string, n: number) {
@@ -135,8 +142,8 @@ function buildGraph(bundle: CareerBundle, profile: CareerProfile | null): { node
   addNode(nodes, seen, {
     id: "profile:self",
     type: "profile",
-    label: profile?.full_name || "Your Career",
-    sub: profile?.headline || "Career knowledge graph",
+    label: profile?.full_name || t("career.title"),
+    sub: profile?.headline || t("map.careerGraph"),
     status: "",
     ...CARD.profile,
   });
@@ -461,7 +468,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
           <div className="row">
             <input
               className="ck-search"
-              placeholder="Search nodes"
+              placeholder={t("map.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -472,7 +479,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
 
         <div className="row spread mb">
           <div className="ck-map-filters">
-            {(Object.keys(FILTER_LABEL) as (keyof typeof FILTER_LABEL)[]).map((type) => (
+            {(Object.keys(DEFAULT_VISIBLE) as (keyof typeof DEFAULT_VISIBLE)[]).map((type) => (
               <button
                 key={type}
                 type="button"
@@ -480,7 +487,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
                 style={{ ["--ck-color" as string]: TYPE_COLOR[type] }}
                 onClick={() => setVisible((v) => ({ ...v, [type]: !v[type] }))}
               >
-                {FILTER_LABEL[type]}
+                {filterLabel(type)}
               </button>
             ))}
           </div>
@@ -502,10 +509,10 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
             }}
           >
             <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
-              <text className="ck-cluster-label" x={128} y={118} textAnchor="middle">Roles</text>
-              <text className="ck-cluster-label" x={LAYOUT.width / 2} y={36} textAnchor="middle">Projects</text>
-              <text className="ck-cluster-label" x={LAYOUT.width - 128} y={118} textAnchor="middle">Skills</text>
-              <text className="ck-cluster-label" x={LAYOUT.width / 2} y={LAYOUT.height - 28} textAnchor="middle">Technologies</text>
+              <text className="ck-cluster-label" x={128} y={118} textAnchor="middle">{t("map.roles")}</text>
+              <text className="ck-cluster-label" x={LAYOUT.width / 2} y={36} textAnchor="middle">{t("map.projects")}</text>
+              <text className="ck-cluster-label" x={LAYOUT.width - 128} y={118} textAnchor="middle">{t("map.skills")}</text>
+              <text className="ck-cluster-label" x={LAYOUT.width / 2} y={LAYOUT.height - 28} textAnchor="middle">{t("map.technologies")}</text>
               {shownEdges.map((e, i) => {
                 const a = nodeById[e.source];
                 const b = nodeById[e.target];
@@ -571,7 +578,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
             <div className="ck-map-detail">
               <div className="row spread">
                 <span className="badge" style={{ color: TYPE_COLOR[selected.type], background: "transparent", border: `1px solid ${TYPE_COLOR[selected.type]}` }}>
-                  {TYPE_LABEL[selected.type]}
+                  {typeLabel(selected.type)}
                 </span>
                 {selected.status && <span className={`badge ${selected.status}`}>{selected.status.replace("_", " ")}</span>}
               </div>
@@ -582,16 +589,16 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
                 {shownEdges.filter((e) => e.source === selected.id || e.target === selected.id).length === 1 ? "" : "s"}
               </div>
               <button className="primary sm mt" onClick={() => onOpenTab(tabFor(selected.type))}>
-                Open {selected.type === "profile" ? "profile" : FILTER_LABEL[selected.type as Exclude<NodeType, "profile">].toLowerCase()}
+                {selected.type === "profile" ? t("career.profile") : filterLabel(selected.type as Exclude<NodeType, "profile">)}
               </button>
             </div>
           )}
         </div>
         <div className="ck-legend">
-          {(Object.keys(FILTER_LABEL) as (keyof typeof FILTER_LABEL)[]).map((type) => (
+          {(Object.keys(DEFAULT_VISIBLE) as (keyof typeof DEFAULT_VISIBLE)[]).map((type) => (
             <span key={type} className="ck-legend-item">
               <span className="evo-dot" style={{ background: TYPE_COLOR[type] }} />
-              {FILTER_LABEL[type]}
+              {filterLabel(type)}
             </span>
           ))}
         </div>

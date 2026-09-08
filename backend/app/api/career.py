@@ -361,6 +361,25 @@ def confirm_pending_ingestion(
     return {"pending_ingestion_id": pending.id, "status": "completed", "applied": applied}
 
 
+@router.post("/pending-ingestions/{pending_id}/accept-suggested")
+def accept_suggested_pending_ingestion(
+    pending_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    pending = _get_owned(db, PendingIngestion, pending_id, user)
+    if pending.status != "pending":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Pending ingestion is already resolved")
+    service = IngestionService(db, user)
+    try:
+        applied = service.accept_suggested(pending)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    audit(db, user, "career.pending_ingestion.accept_suggested", "pending_ingestion", pending.id, applied, request)
+    return {"pending_ingestion_id": pending.id, "status": "completed", "applied": applied}
+
+
 @router.delete("/pending-ingestions/{pending_id}")
 def discard_pending_ingestion(
     pending_id: str,

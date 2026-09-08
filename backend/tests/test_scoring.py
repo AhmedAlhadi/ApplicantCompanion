@@ -86,6 +86,57 @@ def test_candidate_no_evidence_is_unknown_not_failed():
     # UNKNOWN is excluded from the denominator, not treated as failure (§15)
     assert result["unknown_count"] == 1
     assert result["category_scores"] == {}
+    # ...but the uncertainty is fully visible in the range and coverage
+    assert result["overall_score_low"] == 0.0
+    assert result["overall_score_high"] == 1.0
+    assert result["coverage"] == 0.0
+
+
+def test_unknowns_produce_score_range():
+    reqs = [
+        _req("5 years of Python experience", "technical_skill", importance="HIGH"),
+        _req("Kubernetes administration", "technical_skill", importance="HIGH"),
+    ]
+    matches = [_match(reqs[0], "MATCHED"), _match(reqs[1], "UNKNOWN", confidence=0.0)]
+    result = compute_score(reqs, matches)
+    # Point estimate only reflects the evaluated requirement
+    assert result["overall_score"] == 1.0
+    # Bounds show the best/worst case once the unknown is resolved
+    assert result["overall_score_low"] == 0.5
+    assert result["overall_score_high"] == 1.0
+    assert result["coverage"] == 0.5
+    assert result["unknown_count"] == 1
+
+
+def test_bounds_collapse_when_everything_evaluated():
+    reqs = [_req("Python", "technical_skill", importance="CRITICAL")]
+    matches = [_match(reqs[0], "MATCHED")]
+    result = compute_score(reqs, matches)
+    assert result["overall_score_low"] == result["overall_score"] == result["overall_score_high"]
+    assert result["coverage"] == 1.0
+
+
+def test_partial_credit_scales_with_confidence():
+    reqs = [_req("Power BI dashboards", "technical_skill")]
+    weak = compute_score(reqs, [_match(reqs[0], "PARTIALLY_MATCHED", confidence=0.1)])
+    strong = compute_score(reqs, [_match(reqs[0], "PARTIALLY_MATCHED", confidence=0.95)])
+    assert weak["overall_score"] < 0.6 < strong["overall_score"]
+    assert weak["overall_score"] < strong["overall_score"]
+
+
+def test_overall_score_is_clamped_to_unit_interval():
+    # Pathological (now rejected at the settings API, but the engine must be
+    # safe anyway) negative weights could otherwise push the score above 1.
+    reqs = [
+        _req("Python", "technical_skill", importance="CRITICAL"),
+        _req("Master's degree", "education", importance="CRITICAL"),
+    ]
+    matches = [_match(reqs[0], "MATCHED"), _match(reqs[1], "NOT_MATCHED")]
+    result = compute_score(
+        reqs, matches,
+        weights={**DEFAULT_WEIGHTS, "technical_skills": 1.5, "education_certifications": -0.5},
+    )
+    assert 0.0 <= result["overall_score"] <= 1.0
 
 
 def test_scoring_is_stable():

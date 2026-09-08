@@ -138,9 +138,16 @@ def export(
     template = db.query(Template).filter(
         Template.key == doc.template_key, Template.document_type == doc_type
     ).first()
+    from ..prompts.language import content_language_for_user
+
     config = template.config if template else {}
     data, media_type = export_document(
-        fmt, doc_type, current.content, to_dict(profile) if profile else {}, config
+        fmt,
+        doc_type,
+        current.content,
+        to_dict(profile) if profile else {},
+        config,
+        content_language=content_language_for_user(db, user.id),
     )
     audit(db, user, "documents.export", doc_type, doc.id, {"format": fmt}, request)
     db.commit()

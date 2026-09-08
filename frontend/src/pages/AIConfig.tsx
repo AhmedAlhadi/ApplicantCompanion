@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { AgentExecution } from "../api/types";
 import { useApi } from "../components/ui";
+import { useT } from "../lib/i18n";
 
 const TASK_LABELS: Record<string, string> = {
   extraction: "Extraction",
@@ -16,6 +17,7 @@ const TASK_LABELS: Record<string, string> = {
 };
 
 export default function AIConfig() {
+  const { t } = useT();
   const models = useApi<any>(() => api.get("/api/models"));
   const prompts = useApi<any[]>(() => api.get("/api/prompts"));
   const executions = useApi<AgentExecution[]>(() => api.get("/api/agent-executions?limit=40"));
@@ -31,21 +33,21 @@ export default function AIConfig() {
 
   return (
     <>
-      <h1 className="page-title">AI / Model Configuration</h1>
-      <p className="page-sub">Provider-agnostic LLM layer (§3) with per-task model routing for cost control (§45).</p>
+      <h1 className="page-title">{t("ai.title")}</h1>
+      <p className="page-sub">{t("ai.sub")}</p>
 
       <div className="grid cols-2">
         <div className="panel">
-          <h3>Providers</h3>
+          <h3>{t("ai.providers")}</h3>
           <table>
-            <thead><tr><th>Provider</th><th>Configured</th><th>Available</th><th></th></tr></thead>
+            <thead><tr><th>{t("ai.provider")}</th><th>{t("ai.configured")}</th><th>{t("ai.available")}</th><th></th></tr></thead>
             <tbody>
               {Object.entries(models.data?.providers ?? {}).map(([name, info]: [string, any]) => (
                 <tr key={name}>
                   <td style={{ textTransform: "capitalize" }}>{name}</td>
-                  <td>{info.configured ? <span className="badge verified">yes</span> : <span className="badge UNKNOWN">no key</span>}</td>
-                  <td>{info.available ? <span className="badge verified">available</span> : <span className="badge NOT_MATCHED">unavailable</span>}</td>
-                  <td><button className="sm" onClick={() => testProvider(name)} disabled={busy === name}>Test</button></td>
+                  <td>{info.configured ? <span className="badge verified">{t("common.yes")}</span> : <span className="badge UNKNOWN">{t("ai.noKey")}</span>}</td>
+                  <td>{info.available ? <span className="badge verified">{t("ai.available")}</span> : <span className="badge NOT_MATCHED">{t("ai.unavailable")}</span>}</td>
+                  <td><button className="sm" onClick={() => testProvider(name)} disabled={busy === name}>{t("ai.test")}</button></td>
                 </tr>
               ))}
             </tbody>
@@ -56,20 +58,18 @@ export default function AIConfig() {
             </p>
           ))}
           <p className="small muted mt">
-            Primary provider is OpenRouter (`OPENROUTER_API_KEY`). Optional: OPENAI_API_KEY, GEMINI_API_KEY,
-            OLLAMA_BASE_URL. Route tasks with LLM_MODEL_* (`openrouter:org/model`). Without keys, the deterministic
-            offline provider runs the full pipeline.
+            {t("ai.hint")}
           </p>
         </div>
 
         <div className="panel">
-          <h3>Task routing (§45)</h3>
+          <h3>{t("ai.routing")}</h3>
           <table>
-            <thead><tr><th>Task</th><th>Model</th></tr></thead>
+            <thead><tr><th>{t("ai.task")}</th><th>{t("ai.model")}</th></tr></thead>
             <tbody>
               {Object.entries(models.data?.routing ?? {}).map(([task, spec]) => (
                 <tr key={task}>
-                  <td>{TASK_LABELS[task] ?? task}</td>
+                  <td>{t(`ai.tasks.${task}`) !== `ai.tasks.${task}` ? t(`ai.tasks.${task}`) : (TASK_LABELS[task] ?? task)}</td>
                   <td className="mono small">{String(spec)}</td>
                 </tr>
               ))}
@@ -79,7 +79,7 @@ export default function AIConfig() {
       </div>
 
       <div className="panel">
-        <h3>Prompt registry (§37)</h3>
+        <h3>{t("ai.promptRegistry")}</h3>
         <div className="pill-list">
           {prompts.data?.map((p) => (
             <span className="pill" key={p.name}>{p.name} <span className="muted">({p.versions.join(", ")})</span></span>
@@ -88,9 +88,9 @@ export default function AIConfig() {
       </div>
 
       <div className="panel">
-        <h3>Agent execution log (§40)</h3>
+        <h3>{t("ai.execLog")}</h3>
         <table>
-          <thead><tr><th>Agent</th><th>Model</th><th>Prompt</th><th>Status</th><th>Duration</th><th>Tokens</th><th>When</th></tr></thead>
+          <thead><tr><th>{t("ai.agent")}</th><th>{t("ai.model")}</th><th>{t("ai.prompt")}</th><th>{t("applications.status")}</th><th>{t("ai.duration")}</th><th>{t("ai.tokens")}</th><th>{t("ai.when")}</th></tr></thead>
           <tbody>
             {executions.data?.map((e) => (
               <tr key={e.id}>

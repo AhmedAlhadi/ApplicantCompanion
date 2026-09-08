@@ -62,6 +62,15 @@ def _ensure_additive_columns() -> None:
             f"JSON NOT NULL DEFAULT {_json_default('{}')}"
         )
 
+    score_cols = _table_columns(insp, "job_scores")
+    if score_cols:
+        if "overall_score_low" not in score_cols:
+            statements.append("ALTER TABLE job_scores ADD COLUMN overall_score_low FLOAT")
+        if "overall_score_high" not in score_cols:
+            statements.append("ALTER TABLE job_scores ADD COLUMN overall_score_high FLOAT")
+        if "coverage" not in score_cols:
+            statements.append("ALTER TABLE job_scores ADD COLUMN coverage FLOAT NOT NULL DEFAULT 1.0")
+
     if not statements:
         return
     with engine.begin() as conn:

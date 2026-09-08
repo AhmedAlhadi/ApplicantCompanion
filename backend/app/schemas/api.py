@@ -171,6 +171,15 @@ class JobUpdate(BaseModel):
     deadline: str | None = None
     notes: str | None = None
     status: str | None = None
+    department: str | None = None
+    team: str | None = None
+    grade_level: str | None = None
+    contract_type: str | None = None
+    duration: str | None = None
+    remote_policy: str | None = None
+    reporting_line: str | None = None
+    source_url: str | None = None
+    raw_jd_text: str | None = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -222,6 +231,8 @@ class SettingsUpdate(BaseModel):
     score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     scoring_weights: dict[str, float] | None = None
     model_routing: dict[str, str] | None = None
+    ui_language: Literal["ar", "en"] | None = None
+    content_language: Literal["ar", "en"] | None = None
 
 
 class ModelTestRequest(BaseModel):

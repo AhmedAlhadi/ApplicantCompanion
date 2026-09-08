@@ -1,95 +1,131 @@
+import { Briefcase, CalendarDays, FileStack, Gauge, ShieldCheck } from "lucide-react";
 import { api } from "../api/client";
 import type { Application, DashboardStats } from "../api/types";
 import { Empty, Link, useApi } from "../components/ui";
+import { useT } from "../lib/i18n";
 
 const STATUS_ORDER = ["draft", "ready", "submitted", "interview", "rejected", "offer", "withdrawn"];
 
 export default function Dashboard() {
+  const { t } = useT();
   const stats = useApi<DashboardStats>(() => api.get("/api/dashboard/stats"));
   const apps = useApi<Application[]>(() => api.get("/api/applications"));
 
-  if (stats.loading) return <p className="muted">Loading…</p>;
+  if (stats.loading) {
+    return (
+      <>
+        <div className="skeleton skeleton-text" style={{ width: 220 }} />
+        <div className="grid cols-4 mt">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="skeleton skeleton-card" />
+          ))}
+        </div>
+        <div className="grid cols-2 mt">
+          <div className="skeleton" style={{ height: 220 }} />
+          <div className="skeleton" style={{ height: 220 }} />
+        </div>
+      </>
+    );
+  }
   const s = stats.data;
 
   return (
     <>
-      <h1 className="page-title">Dashboard</h1>
-      <p className="page-sub">Your application pipeline at a glance.</p>
+      <h1 className="page-title">{t("dashboard.title")}</h1>
+      <p className="page-sub">{t("dashboard.sub")}</p>
 
       <div className="grid cols-4">
         <div className="stat-card">
-          <div className="stat-value">{s?.total_applications ?? 0}</div>
-          <div className="stat-label">Total Applications</div>
+          <div className="stat-head">
+            <div className="stat-value">{s?.total_applications ?? 0}</div>
+            <FileStack className="stat-icon" aria-hidden />
+          </div>
+          <div className="stat-label">{t("dashboard.totalApps")}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{Math.round((s?.average_fit ?? 0) * 100)}%</div>
-          <div className="stat-label">Average Job Fit</div>
+          <div className="stat-head">
+            <div className="stat-value">{Math.round((s?.average_fit ?? 0) * 100)}%</div>
+            <Gauge className="stat-icon" aria-hidden />
+          </div>
+          <div className="stat-label">{t("dashboard.avgFit")}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{Math.round((s?.average_ats ?? 0) * 100)}%</div>
-          <div className="stat-label">Average ATS Score</div>
+          <div className="stat-head">
+            <div className="stat-value">{Math.round((s?.average_ats ?? 0) * 100)}%</div>
+            <ShieldCheck className="stat-icon" aria-hidden />
+          </div>
+          <div className="stat-label">{t("dashboard.avgAts")}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{s?.applications_this_month ?? 0}</div>
-          <div className="stat-label">Applications This Month</div>
+          <div className="stat-head">
+            <div className="stat-value">{s?.applications_this_month ?? 0}</div>
+            <CalendarDays className="stat-icon" aria-hidden />
+          </div>
+          <div className="stat-label">{t("dashboard.thisMonth")}</div>
         </div>
       </div>
 
       <div className="grid cols-2 mt">
         <div className="panel">
-          <h3>Pipeline by Status</h3>
+          <h3>{t("dashboard.pipeline")}</h3>
           <div className="row" style={{ gap: 8 }}>
             {STATUS_ORDER.map((status) => (
               <div key={status} className="stat-card" style={{ flex: 1, textAlign: "center", padding: "10px 6px" }}>
                 <div className="stat-value" style={{ fontSize: 20 }}>{s?.by_status?.[status] ?? 0}</div>
-                <div className="stat-label" style={{ textTransform: "capitalize" }}>{status}</div>
+                <div className="stat-label">{t(`status.${status}`)}</div>
               </div>
             ))}
           </div>
         </div>
         <div className="panel">
-          <h3>Highest-Fit Opportunities</h3>
+          <h3>{t("dashboard.topFit")}</h3>
           {s?.top_opportunities?.length ? (
             <table>
               <tbody>
                 {s.top_opportunities.map((o) => (
                   <tr key={o.job_id}>
                     <td>
-                      <Link to={`/jobs/${o.job_id}`}>{o.position_title || "Untitled role"}</Link>
+                      <Link to={`/jobs/${o.job_id}`}>{o.position_title || t("common.untitledRole")}</Link>
                       <div className="small muted">{o.organization_name}</div>
                     </td>
-                    <td style={{ textAlign: "right", fontWeight: 700 }}>{Math.round(o.overall_score * 100)}%</td>
+                    <td style={{ textAlign: "end", fontWeight: 700 }}>{Math.round(o.overall_score * 100)}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : (
-            <Empty>No scored jobs yet — add a job to get started.</Empty>
+            <Empty icon={Briefcase}>{t("dashboard.noScored")}</Empty>
           )}
         </div>
       </div>
 
       <div className="panel">
-        <h3>Recent Applications</h3>
+        <h3>{t("dashboard.recent")}</h3>
         {apps.data?.length ? (
           <table>
             <thead>
-              <tr><th>Position</th><th>Organization</th><th>Fit</th><th>ATS</th><th>Status</th></tr>
+              <tr>
+                <th>{t("dashboard.position")}</th>
+                <th>{t("dashboard.organization")}</th>
+                <th>{t("dashboard.fit")}</th>
+                <th>{t("dashboard.ats")}</th>
+                <th>{t("dashboard.status")}</th>
+              </tr>
             </thead>
             <tbody>
               {apps.data.slice(0, 8).map((a) => (
                 <tr key={a.id}>
-                  <td><Link to={`/applications/${a.id}`}>{a.job?.position_title || "Untitled"}</Link></td>
+                  <td><Link to={`/applications/${a.id}`}>{a.job?.position_title || t("common.untitled")}</Link></td>
                   <td>{a.job?.organization_name}</td>
                   <td>{a.fit_score != null ? `${Math.round(a.fit_score * 100)}%` : "—"}</td>
                   <td>{a.ats_score_snapshot != null ? `${Math.round(a.ats_score_snapshot * 100)}%` : "—"}</td>
-                  <td><span className={`badge ${a.status}`}>{a.status}</span></td>
+                  <td><span className={`badge ${a.status}`}>{t(`status.${a.status}`)}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <Empty>No applications yet.</Empty>
+          <Empty icon={FileStack}>{t("dashboard.noApps")}</Empty>
         )}
       </div>
     </>

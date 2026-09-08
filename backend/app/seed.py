@@ -23,6 +23,7 @@ from .models import (
 )
 from .retrieval.pipeline import index_all_for_user
 from .security.auth import hash_password
+from .services.settings import set_user_setting
 from .templates.engine import build_builtin_templates
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,7 @@ def seed_if_empty() -> None:
                 db.add(Language(user_id=user.id, **lang))
             db.flush()
             index_all_for_user(db, user.id)
+            set_user_setting(db, user.id, "onboarding_status", "completed")
 
         db.commit()
         logger.info("Seed complete. Login: %s", email)

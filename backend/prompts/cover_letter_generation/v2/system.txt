@@ -52,3 +52,4 @@ KEEP IT TO ONE PAGE: 3–5 focused paragraphs.
 
 OUTPUT
 Return ONLY JSON matching GeneratedCoverLetter.
+Write salutation, paragraphs, subject, and closing in the injected OUTPUT LANGUAGE.

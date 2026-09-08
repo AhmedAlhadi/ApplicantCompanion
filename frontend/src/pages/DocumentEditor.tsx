@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { Download, History, Pencil } from "lucide-react";
 import { api, downloadFile } from "../api/client";
 import type { AppDocument, CVContent, CoverLetterContent, Template } from "../api/types";
-import { Empty, ErrorBox, Link, ProgressBar, Spinner, useApi } from "../components/ui";
+import { Empty, ErrorBox, Link, Spinner, useApi } from "../components/ui";
+import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { mergeEvidenceIds, stripInlineEvidence } from "../lib/evidenceText";
+import { useT } from "../lib/i18n";
 
 /* Document editor: full human control (§30) — edit any text, reorder/remove
    sections, regenerate single sections, restore versions, switch templates,
@@ -37,6 +40,7 @@ function evidenceSnippet(ev: { original_text?: string; claim?: string }): string
 }
 
 export default function DocumentEditor() {
+  const { t } = useT();
   const { id } = useParams<{ id: string }>();
   const doc = useApi<AppDocument>(() => api.get(`/api/documents/${id}`), [id]);
   const templates = useApi<Template[]>(() => api.get("/api/templates"));
@@ -51,8 +55,8 @@ export default function DocumentEditor() {
   const current = d?.current_version;
   const isCV = d?.document_type === "cv";
 
-  if (doc.loading) return <p className="muted">Loading…</p>;
-  if (!d || !current) return <Empty>Document not found or not generated yet.</Empty>;
+  if (doc.loading) return <p className="muted">{t("common.loading")}</p>;
+  if (!d || !current) return <Empty>{t("editor.notFound")}</Empty>;
 
   const content = current.content as CVContent & CoverLetterContent;
 
@@ -65,7 +69,7 @@ export default function DocumentEditor() {
       setEditMode(false);
       doc.reload();
     } catch (err: any) {
-      setError(err instanceof SyntaxError ? `Invalid JSON: ${err.message}` : "Save failed");
+      setError(err instanceof SyntaxError ? t("editor.invalidJson", { msg: err.message }) : t("editor.saveFailed"));
     } finally {
       setBusy(null);
     }
@@ -82,7 +86,7 @@ export default function DocumentEditor() {
     try {
       await persistContent({ ...content, experience });
     } catch {
-      setError("Could not save experience order");
+      setError(t("editor.reorderFailed"));
     } finally {
       setBusy(null);
     }
@@ -118,7 +122,7 @@ export default function DocumentEditor() {
       if (section === "experience") setSortByDate(true);
       doc.reload();
     } catch (err: any) {
-      setError(typeof err.detail === "string" ? err.detail : "Regeneration failed");
+      setError(typeof err.detail === "string" ? err.detail : t("editor.regenFailed"));
     } finally {
       setBusy(null);
     }
@@ -147,17 +151,17 @@ export default function DocumentEditor() {
           <h1 className="page-title">{d.title}</h1>
           <p className="page-sub">
             {d.job ? <Link to={`/applications/${d.application_id}`}>{d.job.position_title} — {d.job.organization_name}</Link> : null}
-            {" "}· v{current.version_number} {current.user_edited ? "(edited)" : ""} · model <span className="mono">{current.model || "—"}</span> · prompt {current.prompt_version}
+            {" "}· v{current.version_number} {current.user_edited ? t("editor.edited") : ""} · {t("editor.model")} <span className="mono">{current.model || "—"}</span> · {t("editor.prompt")} {current.prompt_version}
           </p>
         </div>
         <div className="row">
           <select value={d.template_key} onChange={(e) => changeTemplate(e.target.value)} style={{ width: "auto" }}>
             {docTemplates.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
           </select>
-          <button onClick={() => downloadFile(`/api/documents/${d.id}/export?fmt=pdf`, "document.pdf")}>Export PDF</button>
-          <button onClick={() => downloadFile(`/api/documents/${d.id}/export?fmt=docx`, "document.docx")}>Export DOCX</button>
+          <button onClick={() => downloadFile(`/api/documents/${d.id}/export?fmt=pdf`, "document.pdf")}><Download aria-hidden /> {t("editor.exportPdf")}</button>
+          <button onClick={() => downloadFile(`/api/documents/${d.id}/export?fmt=docx`, "document.docx")}><Download aria-hidden /> {t("editor.exportDocx")}</button>
           <button className={editMode ? "primary" : ""} onClick={() => { setDraft(JSON.stringify(content, null, 2)); setEditMode(!editMode); }}>
-            {editMode ? "Close editor" : "Edit content"}
+            {editMode ? t("editor.closeEditor") : <><Pencil aria-hidden /> {t("editor.editContent")}</>}
           </button>
         </div>
       </div>
@@ -168,11 +172,11 @@ export default function DocumentEditor() {
         <div>
           {editMode ? (
             <div className="panel">
-              <h3>Edit structured content (JSON)</h3>
+              <h3>{t("editor.editJson")}</h3>
               <textarea rows={28} className="mono" value={draft} onChange={(e) => setDraft(e.target.value)} />
               <div className="row mt">
-                <button className="primary" onClick={saveEdit} disabled={busy === "save"}>Save as new version</button>
-                <span className="small muted">Edits create a new version — nothing is lost (§29).</span>
+                <button className="primary" onClick={saveEdit} disabled={busy === "save"}>{t("editor.saveVersion")}</button>
+                <span className="small muted">{t("editor.editsNote")}</span>
               </div>
             </div>
           ) : (
@@ -206,7 +210,7 @@ export default function DocumentEditor() {
               ))}
             </div>
             {busy && (isCV ? ["summary", "experience", "skills"] : ["paragraphs"]).includes(busy) && (
-              <ProgressBar label={`Regenerating ${busy}…`} />
+              <ThinkingProgress phrases={THINKING_PHRASES.sectionRegen} />
             )}
             <p className="small muted mt">Only the chosen section is regenerated; the rest of the document is preserved.</p>
           </div>
@@ -248,7 +252,7 @@ export default function DocumentEditor() {
                 <span>
                   v{v.version_number} {v.user_edited ? "(edited)" : ""} {v.is_current ? "— current" : ""}
                 </span>
-                {!v.is_current && <button className="sm ghost" onClick={() => restore(v.version_number)} disabled={!!busy}>Restore</button>}
+                {!v.is_current && <button className="sm ghost" onClick={() => restore(v.version_number)} disabled={!!busy}><History aria-hidden /> Restore</button>}
               </div>
             ))}
           </div>

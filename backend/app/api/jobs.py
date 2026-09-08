@@ -22,6 +22,7 @@ from ..models import (
 )
 from ..schemas.api import AnalyzeRequest, JobCreate, JobUpdate
 from ..security.auth import audit, get_current_user
+from ..services.deadlines import extract_application_deadline, normalize_application_deadline
 from ..services.serializers import to_dict
 from ..workers.runner import submit
 
@@ -117,12 +118,13 @@ def reconcile_stale_analysis_runs() -> int:
 def create_job(payload: JobCreate, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if payload.source_type in ("paste", "url") and not payload.raw_jd_text.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Job description text is required")
+    provided_deadline = normalize_application_deadline(payload.deadline)
     job = Job(
         user_id=user.id,
         organization_name=payload.organization_name,
         position_title=payload.position_title,
         location=payload.location,
-        deadline=payload.deadline,
+        deadline=provided_deadline or extract_application_deadline(payload.raw_jd_text) or None,
         notes=payload.notes,
         raw_jd_text=payload.raw_jd_text,
         source_url=payload.source_url,
@@ -171,7 +173,10 @@ def get_job(job_id: str, db: Session = Depends(get_db), user: User = Depends(get
 @router.put("/{job_id}")
 def update_job(job_id: str, payload: JobUpdate, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     job = _get_owned_job(db, job_id, user)
-    for field, value in payload.model_dump(exclude_none=True).items():
+    updates = payload.model_dump(exclude_none=True)
+    if "deadline" in updates:
+        updates["deadline"] = normalize_application_deadline(updates["deadline"]) or updates["deadline"] or None
+    for field, value in updates.items():
         setattr(job, field, value)
     audit(db, user, "jobs.update", "job", job.id, request=request)
     db.commit()

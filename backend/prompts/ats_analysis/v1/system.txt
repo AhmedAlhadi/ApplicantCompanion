@@ -18,6 +18,9 @@ RULES
 - Report honestly; a low score with accurate notes is a success, an inflated
   score is a failure.
 - Only count keywords that appear in a natural, readable context.
+- ALL scores and coverages (ats_score, keyword_coverage, requirement_coverage)
+  MUST be fractions in the range 0.0 to 1.0 — never percentages like 85.
+- Free-text notes follow the injected OUTPUT LANGUAGE policy.
 
 OUTPUT
 Return ONLY JSON matching ATSAnalysis.

@@ -1,36 +1,54 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import {
+  Briefcase,
+  Cpu,
+  FileStack,
+  Files,
+  LayoutDashboard,
+  LayoutTemplate,
+  LogOut,
+  Mail,
+  Moon,
+  Network,
+  Settings as SettingsIcon,
+  Sun,
+  type LucideIcon,
+} from "lucide-react";
 import { api, getToken, setToken, workflowEventsUrl } from "../api/client";
 import type { User, WorkflowRun } from "../api/types";
+import { useT } from "../lib/i18n";
+import { useTheme } from "../lib/theme";
 
-type NavChild = { to: string; label: string; end?: boolean };
-type NavGroup = { to: string; label: string; end?: boolean; children?: NavChild[] };
+type NavChild = { to: string; end?: boolean };
+type NavGroup = { to: string; end?: boolean; icon: LucideIcon; children?: NavChild[] };
 
-const NAV: NavGroup[] = [
-  { to: "/", label: "Dashboard", end: true },
+const NAV: Omit<NavGroup, "label">[] = [
+  { to: "/", end: true, icon: LayoutDashboard },
   {
     to: "/career",
-    label: "My Career",
+    icon: Network,
     children: [
-      { to: "/career", label: "Knowledge Graph" },
-      { to: "/career?tab=experience", label: "Roles & Projects" },
-      { to: "/career?tab=skills", label: "Skills" },
-      { to: "/career?tab=achievements", label: "Achievements" },
+      { to: "/career" },
+      { to: "/career?tab=experience" },
+      { to: "/career?tab=skills" },
+      { to: "/career?tab=achievements" },
     ],
   },
   {
     to: "/jobs",
-    label: "Jobs",
+    icon: Briefcase,
     children: [
-      { to: "/jobs", label: "Job Match", end: true },
+      { to: "/jobs", end: true },
     ],
   },
-  { to: "/applications", label: "Applications" },
-  { to: "/documents", label: "Documents" },
-  { to: "/templates", label: "CV Templates" },
-  { to: "/cover-letter-templates", label: "Cover Letters" },
-  { to: "/settings", label: "Settings" },
-  { to: "/ai-config", label: "AI / Model Config" },
+  { to: "/applications", icon: FileStack },
+  { to: "/documents", icon: Files },
+  { to: "/templates", icon: LayoutTemplate },
+  { to: "/cover-letter-templates", icon: Mail },
+  { to: "/settings", icon: SettingsIcon },
+  { to: "/ai-config", icon: Cpu },
 ];
 
 function careerTab(search: string) {
@@ -77,9 +95,29 @@ export function useApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
 export function Layout({ user }: { user: User }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { theme, setPref } = useTheme();
+  const { t } = useT();
   const logout = () => {
     setToken(null);
     navigate("/login");
+  };
+  const navLabels: Record<string, string> = {
+    "/": t("nav.dashboard"),
+    "/career": t("nav.career"),
+    "/jobs": t("nav.jobs"),
+    "/applications": t("nav.applications"),
+    "/documents": t("nav.documents"),
+    "/templates": t("nav.cvTemplates"),
+    "/cover-letter-templates": t("nav.coverLetters"),
+    "/settings": t("nav.settings"),
+    "/ai-config": t("nav.aiConfig"),
+  };
+  const childLabels: Record<string, string> = {
+    "/career": t("nav.knowledgeGraph"),
+    "/career?tab=experience": t("nav.rolesProjects"),
+    "/career?tab=skills": t("nav.skills"),
+    "/career?tab=achievements": t("nav.achievements"),
+    "/jobs": t("nav.jobMatch"),
   };
   return (
     <div className="app-shell">
@@ -90,6 +128,7 @@ export function Layout({ user }: { user: User }) {
         <nav>
           {NAV.map((item) => {
             const parentActive = isParentActive(item, location.pathname);
+            const Icon = item.icon;
             return (
               <div key={item.to} className="nav-group">
                 <NavLink
@@ -97,7 +136,8 @@ export function Layout({ user }: { user: User }) {
                   end={item.end}
                   className={() => (parentActive ? "active" : "")}
                 >
-                  {item.label}
+                  <Icon className="nav-icon" aria-hidden />
+                  {navLabels[item.to] ?? item.to}
                 </NavLink>
                 {item.children && (
                   <div className="nav-children">
@@ -110,7 +150,7 @@ export function Layout({ user }: { user: User }) {
                           isChildActive(child.to, location.pathname, location.search, child.end) ? "active" : ""
                         }
                       >
-                        {child.label}
+                        {childLabels[child.to] ?? child.to}
                       </NavLink>
                     ))}
                   </div>
@@ -123,23 +163,42 @@ export function Layout({ user }: { user: User }) {
           <div className="sidebar-user">
             <div className="sidebar-user-name">{user.full_name || user.email}</div>
             <div className="sidebar-user-meta">{user.email}</div>
-            {user.is_admin && <span className="badge needs_review">Admin</span>}
+            {user.is_admin && <span className="badge needs_review">{t("common.admin")}</span>}
           </div>
-          <button className="ghost sm" onClick={logout}>
-            Sign out
-          </button>
+          <div className="sidebar-footer-row">
+            <button className="ghost sm" onClick={logout}>
+              <LogOut aria-hidden /> {t("common.signOut")}
+            </button>
+            <button
+              className="ghost sm icon-only"
+              onClick={() => setPref(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? t("common.lightMode") : t("common.darkMode")}
+              aria-label={theme === "dark" ? t("common.lightMode") : t("common.darkMode")}
+            >
+              {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
+            </button>
+          </div>
         </div>
       </aside>
-      <main className="main">
+      <motion.main
+        className="main"
+        key={location.pathname}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+      >
         <Outlet />
-      </main>
+      </motion.main>
     </div>
   );
 }
 
-export function ScoreRing({ score, threshold }: { score: number; threshold?: number }) {
+export function ScoreRing({ score, threshold, low, high }: { score: number; threshold?: number; low?: number | null; high?: number | null }) {
+  const { t } = useT();
   const pct = Math.round(score * 100);
   const strong = threshold === undefined ? pct >= 80 : score >= threshold;
+  const hasRange =
+    low != null && high != null && (Math.round(low * 100) !== pct || Math.round(high * 100) !== pct);
   return (
     <div className="score-ring">
       <div className="score-big" style={{ color: strong ? "var(--ok)" : "var(--warn)" }}>
@@ -147,10 +206,15 @@ export function ScoreRing({ score, threshold }: { score: number; threshold?: num
       </div>
       <div>
         <span className={`badge ${strong ? "strong" : "moderate"}`}>
-          {strong ? "Strong Fit — Recommended to Apply" : "Moderate/Weak Fit"}
+          {strong ? t("score.strong") : t("score.moderate")}
         </span>
+        {hasRange && (
+          <div className="small muted mt">
+            {t("score.possibleRange", { low: Math.round(low * 100), high: Math.round(high * 100) })}
+          </div>
+        )}
         {threshold !== undefined && (
-          <div className="small muted mt">threshold: {Math.round(threshold * 100)}%</div>
+          <div className="small muted mt">{t("score.threshold", { pct: Math.round(threshold * 100) })}</div>
         )}
       </div>
     </div>
@@ -175,10 +239,11 @@ export function ProgressStages({ workflow }: { workflow: WorkflowRun | null }) {
 }
 
 export function ProgressBar({ label }: { label?: string }) {
+  const { t } = useT();
   return (
     <div className="progress-bar-wrap">
       {label ? <div className="small muted mb">{label}</div> : null}
-      <div className="progress-bar" role="progressbar" aria-busy="true" aria-label={label || "Working"}>
+      <div className="progress-bar" role="progressbar" aria-busy="true" aria-label={label || t("common.working")}>
         <div className="progress-bar-indeterminate" />
       </div>
     </div>
@@ -243,8 +308,13 @@ export function useWorkflow(runId: string | null, pollUrl: string | null, onDone
   return run;
 }
 
-export function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="empty">{children}</div>;
+export function Empty({ children, icon: Icon }: { children: React.ReactNode; icon?: LucideIcon }) {
+  return (
+    <div className="empty">
+      {Icon ? <Icon aria-hidden /> : null}
+      <div>{children}</div>
+    </div>
+  );
 }
 
 export function ErrorBox({ error }: { error: string | null }) {

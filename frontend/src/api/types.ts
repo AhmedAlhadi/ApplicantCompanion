@@ -15,10 +15,16 @@ export interface Job {
   deadline: string | null;
   contract_type: string;
   remote_policy: string;
+  department: string;
+  team: string;
+  grade_level: string;
+  duration: string;
+  reporting_line: string;
   status: string;
   notes: string;
   raw_jd_text: string;
   source_url: string;
+  source_type: string;
   executive_summary: string;
   fit_score: number | null;
   created_at: string;
@@ -83,6 +89,9 @@ export interface JobAnalysisResponse {
 
 export interface JobScore {
   overall_score: number;
+  overall_score_low?: number | null;
+  overall_score_high?: number | null;
+  coverage?: number;
   category_scores: Record<string, number>;
   weights: Record<string, number>;
   threshold: number;
@@ -254,6 +263,16 @@ export interface DashboardStats {
   top_opportunities: { job_id: string; organization_name: string; position_title: string; overall_score: number }[];
 }
 
+export type AppLanguage = "ar" | "en";
+
+export interface UserSettings {
+  score_threshold: number;
+  scoring_weights: Record<string, number>;
+  model_routing: Record<string, string>;
+  ui_language: AppLanguage;
+  content_language: AppLanguage;
+}
+
 export interface AgentExecution {
   id: string;
   agent_name: string;
@@ -309,8 +328,43 @@ export interface IngestResult {
   pending_ingestion_id: string | null;
   auto_applied: Record<string, number>;
   proposals_count: number;
+  profile?: Record<string, string>;
   created?: Record<string, number>;
   note?: string;
+}
+
+export interface OnboardingStatus {
+  status: "in_progress" | "completed" | "skipped";
+  has_profile: boolean;
+  experience_count: number;
+  pending_count: number;
+  job_count: number;
+  latest_job: {
+    id: string;
+    status: string;
+    organization_name: string;
+    position_title: string;
+  } | null;
+  latest_application: {
+    id: string;
+    status: string;
+    job_id: string;
+    fit_score: number | null;
+  } | null;
+  latest_score: {
+    overall_score: number;
+    threshold: number;
+    recommendation: string;
+  } | null;
+  profile: {
+    full_name: string;
+    headline: string;
+    summary: string;
+    email: string;
+    phone: string;
+    location: string;
+    links: Record<string, string>;
+  } | null;
 }
 
 export interface CareerNarrative {

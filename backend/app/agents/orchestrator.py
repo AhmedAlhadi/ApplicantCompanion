@@ -44,6 +44,7 @@ from ..qualification import evaluate_qualification_paths
 from ..retrieval.pipeline import retrieve_evidence
 from ..schemas.agents import HiringContextResult, OrganizationResearchResult
 from ..scoring.engine import compute_score
+from ..services.deadlines import extract_application_deadline
 from ..services.research import extract_urls, gather_snippets
 from ..services.serializers import to_dict
 from .base import AgentContext, AgentError
@@ -191,7 +192,7 @@ class Orchestrator:
         job.location = job.location or pos.location
         job.contract_type = pos.contract_type
         job.duration = pos.duration
-        job.deadline = job.deadline or (pos.deadline or None)
+        job.deadline = job.deadline or (pos.deadline or extract_application_deadline(job.raw_jd_text) or None)
         job.remote_policy = pos.remote_policy
         job.reporting_line = pos.reporting_line
         job.executive_summary = analysis.summary
@@ -574,15 +575,21 @@ class Orchestrator:
         score_row = JobScore(
             job_id=job.id,
             overall_score=computed["overall_score"],
+            overall_score_low=computed["overall_score_low"],
+            overall_score_high=computed["overall_score_high"],
+            coverage=computed["coverage"],
             category_scores=computed["category_scores"],
             weights=computed["weights"],
             threshold=threshold,
             recommendation=computed["recommendation"],
             unknown_count=computed["unknown_count"],
-            strong_matches=narrative.strong_matches if narrative else computed["strong_matches"],
-            partial_matches=narrative.partial_matches if narrative else computed["partial_matches"],
-            gaps=narrative.gaps if narrative else computed["gaps"],
-            transferable=narrative.transferable if narrative else computed["transferable"],
+            # Strength/gap lists are derived deterministically from the computed
+            # statuses so the UI can never contradict the numbers; the LLM
+            # narrative only supplies risks, advantages and the explanation.
+            strong_matches=computed["strong_matches"],
+            partial_matches=computed["partial_matches"],
+            gaps=computed["gaps"],
+            transferable=computed["transferable"],
             risks=narrative.risks if narrative else [],
             advantages=narrative.advantages if narrative else [],
             explanation=narrative.explanation if narrative else "",

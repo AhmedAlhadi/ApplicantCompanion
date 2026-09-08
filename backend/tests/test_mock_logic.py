@@ -12,6 +12,7 @@ class TestJDAnalysis:
         assert pos["organization"] == "UNICEF"
         assert pos["location"] == "Amman, Jordan"
         assert pos["contract_type"] == "Fixed Term"
+        assert pos["deadline"] == "2026-09-01"
 
     def test_separates_mandatory_and_preferred(self):
         result = mock_logic.mock_jd_analysis(f"<job_description>{_JD}</job_description>")

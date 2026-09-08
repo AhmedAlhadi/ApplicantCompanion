@@ -153,6 +153,23 @@ class ExtractedPublication(BaseModel):
     year: str = ""
 
 
+class ExtractedProfile(BaseModel):
+    """Contact and positioning details found in a career document."""
+
+    full_name: str = ""
+    headline: str = ""
+    summary: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin: str = ""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _normalize_nullable_strings(cls, value: Any) -> str:
+        return "" if value is None else str(value)
+
+
 class CareerExtractionResult(BaseModel):
     experiences: list[ExtractedExperience] = Field(default_factory=list)
     skills: list[ExtractedSkill] = Field(default_factory=list)
@@ -161,8 +178,14 @@ class CareerExtractionResult(BaseModel):
     languages: list[ExtractedLanguage] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
     publications: list[ExtractedPublication] = Field(default_factory=list)
+    profile: ExtractedProfile = Field(default_factory=ExtractedProfile)
     summary: str = ""
     notes: list[str] = Field(default_factory=list)
+
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _coerce_profile(cls, value: Any) -> Any:
+        return value or {}
 
     @field_validator("skills", mode="before")
     @classmethod
@@ -221,9 +244,11 @@ class JDPositionInfo(BaseModel):
             "title": "job_title", "position_title": "job_title",
             "company": "organization", "organisation": "organization",
             "grade": "grade_level", "employment_type": "contract_type",
+            "closing_date": "deadline", "application_deadline": "deadline",
+            "apply_by": "deadline", "closing": "deadline", "due_date": "deadline",
         }
         for source, target in aliases.items():
-            if source in data and target not in data:
+            if source in data and not data.get(target):
                 data[target] = data[source]
         return data
 
@@ -231,6 +256,13 @@ class JDPositionInfo(BaseModel):
     @classmethod
     def _normalize_nullable_strings(cls, value: Any) -> str:
         return "" if value is None else str(value)
+
+    @field_validator("deadline", mode="after")
+    @classmethod
+    def _normalize_deadline(cls, value: str) -> str:
+        from ..services.deadlines import normalize_application_deadline
+
+        return normalize_application_deadline(value)
 
 
 class QualificationPredicate(BaseModel):
@@ -510,10 +542,10 @@ class MatchingResult(BaseModel):
 
 
 class ScoreNarrative(BaseModel):
-    strong_matches: list[str] = Field(default_factory=list)
-    partial_matches: list[str] = Field(default_factory=list)
-    gaps: list[str] = Field(default_factory=list)
-    transferable: list[str] = Field(default_factory=list)
+    """Qualitative overlay ONLY — strong/partial/gap/transferable lists are
+    derived deterministically by the scoring engine from the match statuses,
+    so the narrative can never contradict the computed numbers."""
+
     risks: list[str] = Field(default_factory=list)
     advantages: list[str] = Field(default_factory=list)
     explanation: str = ""
@@ -630,6 +662,19 @@ class ATSAnalysis(BaseModel):
     formatting_risks: list[str] = Field(default_factory=list)
     requirement_coverage: float = 0.0
     notes: list[str] = Field(default_factory=list)
+
+    @field_validator("ats_score", "keyword_coverage", "requirement_coverage", mode="before")
+    @classmethod
+    def _normalize_unit_interval(cls, value: Any) -> float:
+        """LLMs sometimes return 0-100 despite the 0..1 contract — normalize
+        and clamp so an out-of-scale value can never reach the dashboard."""
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if f > 1.0:
+            f = f / 100.0
+        return min(max(f, 0.0), 1.0)
 
 
 # ── Validation (§41) ─────────────────────────────────────────────────────────

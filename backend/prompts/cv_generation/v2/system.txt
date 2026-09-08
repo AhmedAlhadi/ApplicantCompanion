@@ -53,3 +53,5 @@ OTHER RULES
 
 OUTPUT
 Return ONLY JSON matching GeneratedCV.
+Write headline, summary, and bullet text in the injected OUTPUT LANGUAGE.
+Keep original proper nouns, job titles, and organization names as in the evidence.

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import applications, auth, career, documents, jobs, misc
+from .api import applications, auth, career, documents, jobs, misc, onboarding
 from .config import get_settings
 from .observability import ObservabilityMiddleware, configure_logging
 from .security.rate_limit import RateLimitMiddleware
@@ -47,6 +47,7 @@ app.include_router(jobs.router)
 app.include_router(applications.router)
 app.include_router(documents.router)
 app.include_router(misc.router)
+app.include_router(onboarding.router)
 
 
 @app.get("/api/health")

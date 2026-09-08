@@ -12,6 +12,7 @@ import re
 from collections import Counter
 
 from ..qualification import degree_level, evaluate_qualification_paths
+from ..services.deadlines import extract_application_deadline, normalize_application_deadline
 from ..services.document_postprocess import (
     _date_sort_key,
     relevance_terms,
@@ -29,7 +30,22 @@ STOPWORDS = {
     "ability", "strong", "proven", "excellent", "demonstrated", "experience",
     "experiences", "work", "working", "knowledge", "skills", "skill", "years",
     "year", "minimum", "least", "related", "field", "fields", "within", "across",
+    "في", "من", "على", "إلى", "عن", "مع", "هذا", "هذه", "ذلك", "التي", "الذي",
+    "كان", "يكون", "هو", "هي", "أو", "أن", "إن", "لا", "ما", "قد", "كل",
+    "بعض", "بين", "بعد", "قبل", "خلال", "لدى", "كما", "حيث", "يجب", "الخبرة",
+    "العمل", "المهارات", "سنوات", "سنة",
 }
+
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+#.\-]*|[\u0600-\u06FF]{2,}", re.I)
+
+
+def output_language(text: str) -> str:
+    match = re.search(r"OUTPUT_LANGUAGE:\s*(ar|en)\b", text or "", re.I)
+    return match.group(1).lower() if match else "en"
+
+
+def _loc(user_message: str, en: str, ar: str) -> str:
+    return ar if output_language(user_message) == "ar" else en
 
 TECH_LEXICON = {
     "python", "java", "javascript", "typescript", "c#", "c++", "go", "rust",
@@ -63,7 +79,7 @@ CERT_TERMS = {
 }
 
 LANGUAGES = {
-    "english", "french", "spanish", "arabic", "german", "portuguese", "russian",
+    "english", "french", "spanish", "arabic", "العربية", "عربي", "german", "portuguese", "russian",
     "chinese", "mandarin", "turkish", "kurdish", "hindi", "urdu", "swahili",
     "italian", "dutch", "japanese", "korean", "persian", "farsi", "dari", "pashto",
 }
@@ -97,8 +113,6 @@ RELATED_GROUPS = [
     {"digital transformation", "digitalization", "digitization", "ict",
      "information systems", "mis"},
 ]
-
-_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+#.\-]*")
 
 
 def tokens(text: str) -> list[str]:
@@ -151,10 +165,30 @@ def _related_hit(req_text: str, ev_text: str) -> bool:
 
 # ── career extraction ────────────────────────────────────────────────────────
 
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(
+    r"(?:\+\d{1,3}[\s.\-]?)?(?:\(?\d{2,4}\)?[\s.\-]?)?\d{3}[\s.\-]?\d{4}"
+)
+_LINKEDIN_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/\S+", re.I)
+_NAME_LINE_RE = re.compile(
+    r"^(?:[A-Z][A-Za-z'`.\-]+(?:\s+[A-Z][A-Za-z'`.\-]+){1,3}"
+    r"|[\u0600-\u06FF]{2,}(?:\s+[\u0600-\u06FF]{2,}){0,4})$"
+)
+
+_AR_MONTHS = (
+    r"يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|"
+    r"أكتوبر|اكتوبر|نوفمبر|ديسمبر|كانون الثاني|شباط|آذار|نيسان|أيار|ايار|"
+    r"حزيران|تموز|آب|أيلول|ايلول|تشرين الأول|تشرين الثاني|كانون الأول"
+)
 _DATE_RANGE_RE = re.compile(
-    r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\d{4}(?:[-/]\d{1,2})?)"
-    r"\s*(?:–|-|—|to)\s*"
-    r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\d{4}(?:[-/]\d{1,2})?|present|current|now)",
+    r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}"
+    r"|\d{4}(?:[-/]\d{1,2})?"
+    r"|(?:" + _AR_MONTHS + r")\s*\d{4})"
+    r"\s*(?:–|-|—|to|إلى|حتى)\s*"
+    r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}"
+    r"|\d{4}(?:[-/]\d{1,2})?"
+    r"|present|current|now|حتى الآن|الحالي"
+    r"|(?:" + _AR_MONTHS + r")\s*\d{4})",
     re.IGNORECASE,
 )
 _BULLET_RE = re.compile(r"^\s*[-•*–▪◦]\s+")
@@ -164,13 +198,16 @@ _ACHIEVEMENT_WORDS = re.compile(
     re.IGNORECASE,
 )
 _SECTION_HEADS = {
-    "experience": re.compile(r"(experience|employment|work history|professional history)", re.I),
-    "education": re.compile(r"^education|academic", re.I),
-    "skills": re.compile(r"skills|competencies|technical proficiencies", re.I),
-    "certifications": re.compile(r"certification|licenses|credentials", re.I),
-    "languages": re.compile(r"languages", re.I),
-    "publications": re.compile(r"publications", re.I),
-    "projects": re.compile(r"projects", re.I),
+    "experience": re.compile(
+        r"(experience|employment|work history|professional history|الخبرة(?:\s*العملية)?|الخبرات)",
+        re.I,
+    ),
+    "education": re.compile(r"^education|academic|التعليم|المؤهلات العلمية", re.I),
+    "skills": re.compile(r"skills|competencies|technical proficiencies|المهارات|الكفاءات", re.I),
+    "certifications": re.compile(r"certification|licenses|credentials|الشهادات|الاعتمادات", re.I),
+    "languages": re.compile(r"languages|اللغات", re.I),
+    "publications": re.compile(r"publications|المنشورات|الأبحاث", re.I),
+    "projects": re.compile(r"projects|المشاريع", re.I),
 }
 
 
@@ -182,6 +219,62 @@ def _is_heading(line: str) -> str | None:
         if rx.search(stripped):
             return section
     return None
+
+
+def _extract_profile_block(text: str) -> dict:
+    """Pull contact/name lines from the top of a CV when present."""
+    email_m = _EMAIL_RE.search(text)
+    linkedin_m = _LINKEDIN_RE.search(text)
+    phone = ""
+    for match in _PHONE_RE.finditer(text):
+        candidate = match.group(0).strip()
+        if email_m and candidate in (email_m.group(0) or ""):
+            continue
+        digits = re.sub(r"\D", "", candidate)
+        if 8 <= len(digits) <= 15:
+            phone = candidate
+            break
+
+    full_name = ""
+    headline = ""
+    location = ""
+    for raw in text.splitlines()[:12]:
+        stripped = raw.strip().strip("|").strip()
+        if not stripped or _is_heading(stripped):
+            if _is_heading(stripped):
+                break
+            continue
+        if email_m and email_m.group(0) in stripped:
+            continue
+        if linkedin_m and linkedin_m.group(0) in stripped:
+            continue
+        if phone and phone in stripped:
+            continue
+        low = stripped.lower()
+        if low.startswith(("tel:", "phone:", "email:", "linkedin:", "location:")):
+            if low.startswith("location:"):
+                location = stripped.split(":", 1)[1].strip()
+            continue
+        if not full_name and (_NAME_LINE_RE.match(stripped) or (len(stripped.split()) in (2, 3) and stripped[0].isupper())):
+            full_name = stripped
+            continue
+        if full_name and not headline and 8 < len(stripped) < 90 and not _DATE_RANGE_RE.search(stripped):
+            headline = stripped
+            continue
+
+    loc_m = re.search(r"(?im)^location:\s*(.+)$", text)
+    if loc_m:
+        location = loc_m.group(1).strip()
+
+    return {
+        "full_name": full_name,
+        "headline": headline,
+        "summary": "",
+        "email": email_m.group(0) if email_m else "",
+        "phone": phone,
+        "location": location,
+        "linkedin": linkedin_m.group(0).rstrip(").,") if linkedin_m else "",
+    }
 
 
 def mock_career_extraction(user_message: str) -> dict:
@@ -209,10 +302,10 @@ def mock_career_extraction(user_message: str) -> dict:
         nonlocal current_exp
         flush_exp()
         org, title = header, ""
-        for sep in (" at ", " | ", " — ", " – ", " - ", ", "):
+        for sep in (" at ", " | ", " — ", " – ", " - ", "، ", ", "):
             if sep in header:
                 left, right = header.split(sep, 1)
-                if sep == " at ":
+                if sep in (" at ", "، "):
                     title, org = left.strip(), right.strip()
                 else:
                     org, title = left.strip(), right.strip()
@@ -343,6 +436,7 @@ def mock_career_extraction(user_message: str) -> dict:
         "languages": languages,
         "achievements": achievements_top,
         "publications": [],
+        "profile": _extract_profile_block(text),
         "summary": "",
         "notes": ["Extracted by deterministic offline parser; review before marking verified."],
     }
@@ -513,36 +607,51 @@ def mock_career_reconciliation(user_message: str) -> dict:
 # ── JD analysis ──────────────────────────────────────────────────────────────
 
 _FIELD_RES = [
-    (re.compile(r"^(organization|organisation|company|employer)\s*[:\-]\s*(.+)$", re.I), "organization"),
-    (re.compile(r"^(job\s*title|position(?:\s*title)?|title|role)\s*[:\-]\s*(.+)$", re.I), "job_title"),
-    (re.compile(r"^(location|duty\s*station|based\s*in)\s*[:\-]\s*(.+)$", re.I), "location"),
-    (re.compile(r"^(department|division|unit)\s*[:\-]\s*(.+)$", re.I), "department"),
-    (re.compile(r"^(team)\s*[:\-]\s*(.+)$", re.I), "team"),
-    (re.compile(r"^(contract(?:\s*type)?|employment\s*type)\s*[:\-]\s*(.+)$", re.I), "contract_type"),
-    (re.compile(r"^(duration|contract\s*duration)\s*[:\-]\s*(.+)$", re.I), "duration"),
-    (re.compile(r"^(deadline|closing\s*date|apply\s*by)\s*[:\-]\s*(.+)$", re.I), "deadline"),
-    (re.compile(r"^(grade|level|seniority)\s*[:\-]\s*(.+)$", re.I), "grade_level"),
-    (re.compile(r"^(reports?\s*to|reporting\s*line)\s*[:\-]\s*(.+)$", re.I), "reporting_line"),
+    (re.compile(r"^(organization|organisation|company|employer|الجهة|الشركة|المنظمة)\s*[:\-]\s*(.+)$", re.I), "organization"),
+    (re.compile(r"^(job\s*title|position(?:\s*title)?|title|role|المسمى(?:\s*الوظيفي)?|الوظيفة)\s*[:\-]\s*(.+)$", re.I), "job_title"),
+    (re.compile(r"^(location|duty\s*station|based\s*in|الموقع|مكان\s*العمل)\s*[:\-]\s*(.+)$", re.I), "location"),
+    (re.compile(r"^(department|division|unit|القسم|الدائرة)\s*[:\-]\s*(.+)$", re.I), "department"),
+    (re.compile(r"^(team|الفريق)\s*[:\-]\s*(.+)$", re.I), "team"),
+    (re.compile(r"^(contract(?:\s*type)?|employment\s*type|نوع\s*العقد)\s*[:\-]\s*(.+)$", re.I), "contract_type"),
+    (re.compile(r"^(duration|contract\s*duration|المدة)\s*[:\-]\s*(.+)$", re.I), "duration"),
+    (re.compile(
+        r"^(?:application\s+)?(deadline|closing(?:\s*date)?|close\s*date|"
+        r"last\s*date(?:\s*to\s*apply)?|due\s*date|apply\s*(?:by|before|until)|"
+        r"آخر\s*موعد(?:\s*للتقديم)?|تاريخ\s*الإغلاق)"
+        r"\s*[:\-]\s*(.+)$",
+        re.I,
+    ), "deadline"),
+    (re.compile(r"^(grade|level|seniority|الدرجة|المستوى)\s*[:\-]\s*(.+)$", re.I), "grade_level"),
+    (re.compile(r"^(reports?\s*to|reporting\s*line|يرفع\s*إلى)\s*[:\-]\s*(.+)$", re.I), "reporting_line"),
 ]
 
 _JD_SECTIONS = {
-    "responsibilities": re.compile(r"responsibilit|duties|what you('| wi)ll do|key (functions|tasks)|role overview|your role", re.I),
-    "requirements": re.compile(r"requirement|qualification|what we('re| are) looking for|who you are|your profile|skills (and|&) experience|experience (and|&) skills|must.have", re.I),
-    "preferred": re.compile(r"preferred|desirable|nice.to.have|an asset|a plus|advantageous|bonus", re.I),
-    "education": re.compile(r"^education", re.I),
-    "about": re.compile(r"about (us|the|our)|who we are", re.I),
-    "benefits": re.compile(r"we offer|benefits|compensation|what we provide", re.I),
+    "responsibilities": re.compile(
+        r"responsibilit|duties|what you('| wi)ll do|key (functions|tasks)|role overview|your role|المسؤوليات|المهام",
+        re.I,
+    ),
+    "requirements": re.compile(
+        r"requirement|qualification|what we('re| are) looking for|who you are|your profile|skills (and|&) experience|experience (and|&) skills|must.have|المتطلبات|المؤهلات",
+        re.I,
+    ),
+    "preferred": re.compile(r"preferred|desirable|nice.to.have|an asset|a plus|advantageous|bonus|المفضل|يفضل", re.I),
+    "education": re.compile(r"^education|التعليم", re.I),
+    "about": re.compile(r"about (us|the|our)|who we are|نبذة|عن\s*(الجهة|المنظمة)", re.I),
+    "benefits": re.compile(r"we offer|benefits|compensation|what we provide|المزايا", re.I),
 }
 
-_PREFERRED_HINTS = re.compile(r"preferred|desirable|nice.to.have|an asset|a plus|advantageous|would be|ideally", re.I)
-_MANDATORY_HINTS = re.compile(r"\bmust\b|required|essential|minimum|at least|mandatory", re.I)
+_PREFERRED_HINTS = re.compile(
+    r"preferred|desirable|nice.to.have|an asset|a plus|advantageous|would be|ideally|يفضل|المفضل",
+    re.I,
+)
+_MANDATORY_HINTS = re.compile(r"\bmust\b|required|essential|minimum|at least|mandatory|مطلوب|إلزامي|ضروري", re.I)
 
 
 def _classify_requirement(text: str) -> str:
     low = text.lower()
-    if re.search(r"degree|bachelor|master'?s|phd|doctorate|diploma|university|academic", low):
+    if re.search(r"degree|bachelor|master'?s|phd|doctorate|diploma|university|academic|بكالوريوس|ماجستير|دكتوراه|ثانوية|توجيهي", low):
         return "education"
-    if re.search(r"\d+\s*\+?\s*years?|years? of", low):
+    if re.search(r"\d+\s*\+?\s*years?|years? of|سنوات", low):
         return "experience"
     if any(lang in low for lang in LANGUAGES) and re.search(r"fluen|proficien|knowledge of|native|working", low):
         return "language"
@@ -818,6 +927,10 @@ def mock_jd_analysis(user_message: str) -> dict:
         m = re.search(r"\b(?:at|with|join)\s+([A-Z][A-Za-z0-9&.,' ]{2,60})", jd)
         if m:
             position["organization"] = m.group(1).strip().rstrip(".,;")
+    position["deadline"] = (
+        normalize_application_deadline(position.get("deadline", ""))
+        or extract_application_deadline(jd)
+    )
 
     low_jd = jd.lower()
     if re.search(r"\bremote\b", low_jd):
@@ -1002,9 +1115,13 @@ def mock_candidate_matching(user_message: str) -> dict:
                 "status": status,
                 "evidence": supporting,
                 "explanation": (
-                    "Satisfied an alternative qualification path."
+                    _loc(user_message, "Satisfied an alternative qualification path.", "تم استيفاء مسار تأهيل بديل.")
                     if status == "MATCHED"
-                    else "Structured qualification paths were evaluated deterministically."
+                    else _loc(
+                        user_message,
+                        "Structured qualification paths were evaluated deterministically.",
+                        "تم تقييم مسارات التأهيل المحددة بشكل حتمي.",
+                    )
                 ),
                 "confidence": 0.95 if status != "UNKNOWN" else 0.0,
                 "match_kind": "direct",
@@ -1017,7 +1134,11 @@ def mock_candidate_matching(user_message: str) -> dict:
                 "requirement_id": req.get("id", ""),
                 "status": "UNKNOWN",
                 "evidence": [],
-                "explanation": "No career evidence available to evaluate this requirement.",
+                "explanation": _loc(
+                    user_message,
+                    "No career evidence available to evaluate this requirement.",
+                    "لا توجد أدلة مهنية لتقييم هذا المتطلب.",
+                ),
                 "confidence": 0.0,
                 "match_kind": "direct",
                 "qualification_evaluation": {},
@@ -1044,19 +1165,35 @@ def mock_candidate_matching(user_message: str) -> dict:
         if best >= 0.55:
             status, kind = "MATCHED", "direct"
             conf = min(0.99, 0.55 + best / 2)
-            expl = f"Direct evidence found in {best_ev.get('entity_type', 'record')}."
+            expl = _loc(
+                user_message,
+                f"Direct evidence found in {best_ev.get('entity_type', 'record')}.",
+                f"وُجد دليل مباشر في {best_ev.get('entity_type', 'record')}.",
+            )
         elif best >= 0.30:
             status, kind = "PARTIALLY_MATCHED", "direct"
             conf = 0.4 + best / 2
-            expl = "Partial coverage: related evidence exists but does not fully cover the requirement."
+            expl = _loc(
+                user_message,
+                "Partial coverage: related evidence exists but does not fully cover the requirement.",
+                "تغطية جزئية: توجد أدلة ذات صلة لكنها لا تغطي المتطلب بالكامل.",
+            )
         elif transferable:
             status, kind = "TRANSFERABLE", "transferable"
             conf = 0.45
-            expl = "No direct evidence; closely related transferable experience identified."
+            expl = _loc(
+                user_message,
+                "No direct evidence; closely related transferable experience identified.",
+                "لا دليل مباشر؛ وُجدت خبرة قريبة قابلة للنقل.",
+            )
         else:
             status, kind = "NOT_MATCHED", "direct"
             conf = 0.7
-            expl = "No supporting evidence found in the career knowledge base."
+            expl = _loc(
+                user_message,
+                "No supporting evidence found in the career knowledge base.",
+                "لم يُعثر على دليل داعم في قاعدة المعرفة المهنية.",
+            )
         matches.append({
             "requirement_id": req.get("id", ""),
             "status": status,
@@ -1077,38 +1214,47 @@ def mock_scoring(user_message: str) -> dict:
     matches = payload.get("matches", [])
     overall = payload.get("overall_score", 0.0)
 
-    strong, partial, gaps, transferable = [], [], [], []
+    # Strength/gap lists are derived programmatically by the scoring engine;
+    # the narrative only supplies risks, advantages and the explanation.
+    counts = {"MATCHED": 0, "PARTIALLY_MATCHED": 0, "TRANSFERABLE": 0, "NOT_MATCHED": 0, "UNKNOWN": 0}
+    strong_texts = []
     for m in matches:
-        text = m.get("requirement_text", "")
         status = m.get("status", "UNKNOWN")
+        counts[status] = counts.get(status, 0) + 1
         if status == "MATCHED":
-            strong.append(text)
-        elif status == "PARTIALLY_MATCHED":
-            partial.append(text)
-        elif status == "TRANSFERABLE":
-            transferable.append(text)
-        elif status == "NOT_MATCHED":
-            gaps.append(text)
+            strong_texts.append(m.get("requirement_text", ""))
 
     risks = []
-    if gaps:
-        risks.append(f"{len(gaps)} requirement(s) have no supporting evidence.")
-    unknowns = [m for m in matches if m.get("status") == "UNKNOWN"]
-    if unknowns:
-        risks.append(f"{len(unknowns)} requirement(s) could not be evaluated (insufficient data).")
-    advantages = strong[:3]
+    if counts["NOT_MATCHED"]:
+        risks.append(_loc(
+            user_message,
+            f"{counts['NOT_MATCHED']} requirement(s) have no supporting evidence.",
+            f"{counts['NOT_MATCHED']} متطلب/متطلبات بلا دليل داعم.",
+        ))
+    if counts["UNKNOWN"]:
+        risks.append(_loc(
+            user_message,
+            f"{counts['UNKNOWN']} requirement(s) could not be evaluated (insufficient data).",
+            f"{counts['UNKNOWN']} متطلب/متطلبات تعذر تقييمها بسبب نقص البيانات.",
+        ))
+    advantages = strong_texts[:3]
 
-    explanation = (
-        f"Overall fit is {overall:.0%}. "
-        f"{len(strong)} requirement(s) are directly matched by evidence, "
-        f"{len(partial)} partially matched, {len(transferable)} covered by transferable "
-        f"experience, and {len(gaps)} gap(s) identified."
+    explanation = _loc(
+        user_message,
+        (
+            f"Overall fit is {overall:.0%}. "
+            f"{counts['MATCHED']} requirement(s) are directly matched by evidence, "
+            f"{counts['PARTIALLY_MATCHED']} partially matched, {counts['TRANSFERABLE']} covered by transferable "
+            f"experience, and {counts['NOT_MATCHED']} gap(s) identified."
+        ),
+        (
+            f"الملاءمة الإجمالية {overall:.0%}. "
+            f"{counts['MATCHED']} متطلب مطابق مباشرة بالأدلة، "
+            f"{counts['PARTIALLY_MATCHED']} مطابق جزئياً، {counts['TRANSFERABLE']} مغطى بخبرة قابلة للنقل، "
+            f"و{counts['NOT_MATCHED']} فجوة/فجوات."
+        ),
     )
     return {
-        "strong_matches": strong,
-        "partial_matches": partial,
-        "gaps": gaps,
-        "transferable": transferable,
         "risks": risks,
         "advantages": advantages,
         "explanation": explanation,
@@ -1133,7 +1279,11 @@ def mock_strategy(user_message: str) -> dict:
             if ev.get("entity_type") == "experience":
                 exp_counter[ev.get("entity_id", "")] += 1
         if m.get("status") in ("NOT_MATCHED",) and m.get("importance") in ("CRITICAL", "HIGH"):
-            concerns.append(f"Gap in important requirement: {m.get('requirement_text', '')[:120]}")
+            concerns.append(_loc(
+                user_message,
+                f"Gap in important requirement: {m.get('requirement_text', '')[:120]}",
+                f"فجوة في متطلب مهم: {m.get('requirement_text', '')[:120]}",
+            ))
         for kw in m.get("keywords", []):
             if m.get("status") == "MATCHED" and kw not in matched_skills:
                 matched_skills.append(kw)
@@ -1141,14 +1291,29 @@ def mock_strategy(user_message: str) -> dict:
     priority_experience = [eid for eid, _ in exp_counter.most_common(5)]
     title = position.get("job_title", "this role")
     org = position.get("organization", "the organization")
-    positioning = (
-        f"Position the candidate as a results-oriented professional for {title} at {org}, "
-        f"leading with directly evidenced experience and quantified achievements."
+    positioning = _loc(
+        user_message,
+        (
+            f"Position the candidate as a results-oriented professional for {title} at {org}, "
+            f"leading with directly evidenced experience and quantified achievements."
+        ),
+        (
+            f"قدّم المرشح كمهني موجّه بالنتائج لوظيفة {title} في {org}، "
+            f"مع إبراز الخبرة المدعومة بالأدلة والإنجازات المكمّمة."
+        ),
     )
-    messaging = (
-        f"Open with the strongest evidence-backed alignment to {title}; "
-        f"connect the candidate's measurable results to {org}'s priorities; "
-        f"address transferable areas honestly without overstating them."
+    messaging = _loc(
+        user_message,
+        (
+            f"Open with the strongest evidence-backed alignment to {title}; "
+            f"connect the candidate's measurable results to {org}'s priorities; "
+            f"address transferable areas honestly without overstating them."
+        ),
+        (
+            f"ابدأ بأقوى محاذاة مدعومة بالأدلة لوظيفة {title}؛ "
+            f"اربط نتائج المرشح القابلة للقياس بأولويات {org}؛ "
+            f"وعالج المجالات القابلة للنقل بصدق دون مبالغة."
+        ),
     )
     return {
         "positioning": positioning,
@@ -1216,7 +1381,7 @@ def mock_cv_generation(user_message: str) -> dict:
             "organization": e.get("organization", ""),
             "job_title": e.get("job_title", ""),
             "start_date": e.get("start_date", "") or "",
-            "end_date": e.get("end_date", "") or "Present",
+            "end_date": e.get("end_date", "") or _loc(user_message, "Present", "حتى الآن"),
             "location": e.get("location", ""),
             "bullets": bullets,
         })
@@ -1232,10 +1397,21 @@ def mock_cv_generation(user_message: str) -> dict:
         f"{job.get('position_title', 'Professional')} | {top_skills}" if top_skills else job.get("position_title", "")
     )
     summary = profile.get("summary") or (
-        f"Professional with evidenced experience aligned to {job.get('position_title', 'the role')} "
-        f"at {job.get('organization_name', 'the organization')}. "
-        f"Key strengths: {top_skills}." if top_skills else
-        f"Professional applying for {job.get('position_title', 'the role')}."
+        _loc(
+            user_message,
+            (
+                f"Professional with evidenced experience aligned to {job.get('position_title', 'the role')} "
+                f"at {job.get('organization_name', 'the organization')}. "
+                f"Key strengths: {top_skills}." if top_skills else
+                f"Professional applying for {job.get('position_title', 'the role')}."
+            ),
+            (
+                f"مهني بخبرة موثّقة متوافقة مع {job.get('position_title', 'الدور')} "
+                f"في {job.get('organization_name', 'الجهة')}. "
+                f"نقاط القوة: {top_skills}." if top_skills else
+                f"مهني يتقدم لوظيفة {job.get('position_title', 'الدور')}."
+            ),
+        )
     )
     summary_eids = [e.get("id", "") for e in ordered_exp[:2] if e.get("id")]
 
@@ -1281,15 +1457,18 @@ def mock_cover_letter(user_message: str) -> dict:
 
     hm = hiring.get("hiring_manager") if hiring else None
     if hm and hm.get("confidence") in ("HIGH", "MEDIUM") and hm.get("name"):
-        salutation = f"Dear {hm['name']},"
+        salutation = f"Dear {hm['name']}," if output_language(user_message) == "en" else f"السيد/ة {hm['name']}،"
     else:
-        salutation = "Dear Hiring Manager,"
+        salutation = _loc(user_message, "Dear Hiring Manager,", "السيد/ة مدير التوظيف،")
 
     paragraphs = []
     paragraphs.append({
         "text": (
-            f"I am writing to apply for the role of {title} at {org}. "
-            f"{strategy.get('positioning', '')}".strip()
+            _loc(
+                user_message,
+                f"I am writing to apply for the role of {title} at {org}. {strategy.get('positioning', '')}".strip(),
+                f"أتقدم بطلبي لوظيفة {title} في {org}. {strategy.get('positioning', '')}".strip(),
+            )
         ),
         "evidence_ids": [],
     })
@@ -1347,10 +1526,10 @@ def mock_cover_letter(user_message: str) -> dict:
 
     name = profile.get("full_name", "")
     return {
-        "subject": f"Application for {title} — {org}",
+        "subject": _loc(user_message, f"Application for {title} — {org}", f"طلب توظيف لوظيفة {title} — {org}"),
         "salutation": salutation,
         "paragraphs": paragraphs,
-        "closing": f"Sincerely,\n{name}".strip(),
+        "closing": _loc(user_message, f"Sincerely,\n{name}".strip(), f"مع فائق الاحترام،\n{name}".strip()),
     }
 
 

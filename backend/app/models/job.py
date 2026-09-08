@@ -133,6 +133,11 @@ class JobScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), index=True)
     overall_score: Mapped[float] = mapped_column(Float, default=0.0)  # 0..1
+    # Uncertainty range: unknowns counted as failed (low) / matched (high).
+    overall_score_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    overall_score_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Importance-weighted share of requirements that could be evaluated (0..1).
+    coverage: Mapped[float] = mapped_column(Float, default=1.0)
     category_scores: Mapped[dict] = mapped_column(JSON, default=dict)
     weights: Mapped[dict] = mapped_column(JSON, default=dict)
     threshold: Mapped[float] = mapped_column(Float, default=0.8)

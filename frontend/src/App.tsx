@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
 import { api, getToken } from "./api/client";
-import type { User } from "./api/types";
+import type { OnboardingStatus, User, UserSettings } from "./api/types";
 import { Layout, useApi } from "./components/ui";
 import AIConfig from "./pages/AIConfig";
 import ApplicationDetail from "./pages/ApplicationDetail";
@@ -12,12 +13,26 @@ import Documents from "./pages/Documents";
 import JobDetail from "./pages/JobDetail";
 import Jobs from "./pages/Jobs";
 import Login from "./pages/Login";
+import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
 import Templates from "./pages/Templates";
+import { setContentLanguage, setUiLanguage } from "./lib/i18n";
 
 export default function App() {
   const token = getToken();
   const me = useApi<User>(() => api.get("/api/auth/me"), [token]);
+  const onboarding = useApi<OnboardingStatus | null>(
+    () => (token ? api.get("/api/onboarding") : Promise.resolve(null)),
+    [token],
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    api.get<UserSettings>("/api/settings").then((s) => {
+      if (s.ui_language === "ar" || s.ui_language === "en") setUiLanguage(s.ui_language);
+      if (s.content_language === "ar" || s.content_language === "en") setContentLanguage(s.content_language);
+    }).catch(() => undefined);
+  }, [token]);
 
   if (!token) {
     return (
@@ -28,7 +43,17 @@ export default function App() {
       </BrowserRouter>
     );
   }
-  if (me.loading) return <p className="muted" style={{ padding: 40 }}>Loading…</p>;
+  if (me.loading || onboarding.loading) {
+    return (
+      <div className="boot-splash">
+        <div className="brand">
+          Applicant<span>Companion</span>
+        </div>
+        <div className="skeleton skeleton-text" style={{ width: 180 }} />
+        <div className="skeleton skeleton-text" style={{ width: 120 }} />
+      </div>
+    );
+  }
   if (me.error || !me.data) {
     return (
       <BrowserRouter>
@@ -39,10 +64,24 @@ export default function App() {
     );
   }
 
+  const finished = onboarding.data?.status === "completed" || onboarding.data?.status === "skipped";
+
+  if (!finished) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/onboarding" element={<Onboarding user={me.data} />} />
+          <Route path="*" element={<Navigate to="/onboarding" replace />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/onboarding" element={<Navigate to="/" replace />} />
         <Route element={<Layout user={me.data} />}>
           <Route index element={<Dashboard />} />
           <Route path="/career" element={<CareerKnowledge />} />

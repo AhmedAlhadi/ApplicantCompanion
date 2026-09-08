@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Check, FileSearch, Inbox, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import type {
   CareerAchievement,
@@ -13,6 +14,7 @@ import type {
 import { CareerOverview, type CareerTabKey } from "../components/CareerMap";
 import { ExperienceRoleCard } from "../components/ExperienceRoleCards";
 import { Empty, ErrorBox, Link, useApi } from "../components/ui";
+import { t, useT } from "../lib/i18n";
 
 /* Field-driven CRUD tabs keep every career entity editable with provenance
    badges (§47: Verified / Unverified / Needs Review). */
@@ -348,13 +350,13 @@ function EntityTab({ config }: { config: EntityConfig }) {
     <>
       <div className="row spread mb">
         <p className="muted" style={{ margin: 0 }}>{data?.length ?? 0} entr{data?.length === 1 ? "y" : "ies"}</p>
-        <button className="primary sm" onClick={() => { setAdding(true); setEditing(null); }}>+ Add</button>
+        <button className="primary sm" onClick={() => { setAdding(true); setEditing(null); }}><Plus aria-hidden /> Add</button>
       </div>
       {(adding || editing) && (
         <EntityForm config={config} initial={editing} onSaved={() => { setAdding(false); setEditing(null); reload(); }} onCancel={() => { setAdding(false); setEditing(null); }} />
       )}
       {loading && <p className="muted">Loading…</p>}
-      {!loading && !data?.length && <Empty>Nothing here yet — add entries manually or ingest a document.</Empty>}
+      {!loading && !data?.length && <Empty icon={Inbox}>Nothing here yet — add entries manually or ingest a document.</Empty>}
       {isExperience
         ? (data as CareerExperience[] | undefined)?.map((row) => (
           <ExperienceRoleCard
@@ -381,10 +383,10 @@ function EntityTab({ config }: { config: EntityConfig }) {
               {row.verification_status && <span className={`badge ${row.verification_status}`}>{row.verification_status.replace("_", " ")}</span>}
               <button className="sm ghost" onClick={() => setEvidenceFor(evidenceFor === row.id ? null : row.id)}>View Evidence</button>
               {config.verifiable && row.verification_status !== "verified" && (
-                <button className="sm" onClick={() => verify(row.id, "verified")}>Mark verified</button>
+                <button className="sm" onClick={() => verify(row.id, "verified")}><Check aria-hidden /> Mark verified</button>
               )}
-              <button className="sm" onClick={() => { setEditing(row); setAdding(false); }}>Edit</button>
-              <button className="sm danger" onClick={() => remove(row.id)}>Delete</button>
+              <button className="sm" onClick={() => { setEditing(row); setAdding(false); }}><Pencil aria-hidden /> Edit</button>
+              <button className="sm danger" onClick={() => remove(row.id)}><Trash2 aria-hidden /> Delete</button>
             </div>
           </div>
           {evidenceFor === row.id && <EvidencePanel entityType={config.key === "education" ? "education" : config.key.replace(/s$/, "")} entityId={row.id} />}
@@ -700,7 +702,7 @@ function PendingIngestionsTab({
         into existing entries or create new ones.
       </p>
       {pending.loading && <p className="muted">Loading…</p>}
-      {!pending.loading && !pending.data?.length && <Empty>No pending reviews.</Empty>}
+      {!pending.loading && !pending.data?.length && <Empty icon={Inbox}>No pending reviews.</Empty>}
       {pending.data?.map((row) => (
         <div className="list-item" key={row.id}>
           <div className="row spread">
@@ -812,7 +814,7 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
         <div className="panel">
           <h3>Paste career text</h3>
           <textarea rows={6} placeholder="Paste your CV, a role description, achievements…" value={text} onChange={(e) => setText(e.target.value)} />
-          <button className="primary mt" onClick={ingestText} disabled={busy || !text.trim()}>Extract structured knowledge</button>
+          <button className="primary mt" onClick={ingestText} disabled={busy || !text.trim()}><Sparkles aria-hidden /> Extract structured knowledge</button>
         </div>
       </div>
       <ErrorBox error={error} />
@@ -849,7 +851,7 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
             </tbody>
           </table>
         ) : (
-          <Empty>No documents uploaded yet.</Empty>
+          <Empty icon={FileSearch}>No documents uploaded yet.</Empty>
         )}
       </div>
     </>
@@ -882,13 +884,14 @@ function PreviousApplicationsTab() {
           </tbody>
         </table>
       ) : (
-        <Empty>No applications recorded yet.</Empty>
+        <Empty icon={Inbox}>No applications recorded yet.</Empty>
       )}
     </div>
   );
 }
 
 export default function CareerKnowledge() {
+  const { t } = useT();
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") || "overview";
   const setTab = (key: string) => {
@@ -904,28 +907,27 @@ export default function CareerKnowledge() {
   };
 
   const tabs = [
-    { key: "overview", label: "Knowledge Graph" },
-    { key: "profile", label: "Profile" },
-    ...ENTITIES.map((e) => ({ key: e.key, label: e.label })),
+    { key: "overview", label: t("career.overview") },
+    { key: "profile", label: t("career.profile") },
+    ...ENTITIES.map((e) => ({ key: e.key, label: t(`career.entities.${e.key}`) })),
     {
       key: "pending",
       label: pendingCount.data?.length
-        ? `Pending review (${pendingCount.data.length})`
-        : "Pending review",
+        ? t("career.pendingCount", { n: pendingCount.data.length })
+        : t("career.pending"),
     },
-    { key: "documents", label: "Documents" },
-    { key: "previous", label: "Previous Applications" },
+    { key: "documents", label: t("career.documents") },
+    { key: "previous", label: t("career.previous") },
   ];
 
   return (
     <>
-      <h1 className="page-title">My Career</h1>
-      <p className="page-sub">Visualize your experience, skills, and achievements as an interconnected knowledge graph.</p>
+      <h1 className="page-title">{t("career.title")}</h1>
+      <p className="page-sub">{t("career.sub")}</p>
       {!!pendingCount.data?.length && tab !== "pending" && (
         <div className="alert warn">
-          You have {pendingCount.data.length} extraction{pendingCount.data.length === 1 ? "" : "s"} waiting for
-          merge/create confirmation.{" "}
-          <button className="sm" onClick={() => setTab("pending")}>Review now</button>
+          {pendingCount.data.length === 1 ? t("career.pendingAlert", { n: pendingCount.data.length }) : t("career.pendingAlertPlural", { n: pendingCount.data.length })}{" "}
+          <button className="sm" onClick={() => setTab("pending")}>{t("career.reviewNow")}</button>
         </div>
       )}
       <div className="tabs">

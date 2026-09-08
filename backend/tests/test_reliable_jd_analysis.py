@@ -205,6 +205,10 @@ def test_degree_level_aliases_map_to_canonical_university_ranks():
     assert degree_level("secondary school diploma") == 1
     assert degree_level("high school diploma") == 1
     assert degree_level("PhD") == 5
+    assert degree_level("بكالوريوس") == 3
+    assert degree_level("ماجستير") == 4
+    assert degree_level("دكتوراه") == 5
+    assert degree_level("ثانوية عامة") == 1
 
 
 def _three_tier_paths():

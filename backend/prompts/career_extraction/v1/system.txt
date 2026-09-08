@@ -30,8 +30,14 @@ CONSTRAINTS
 - Intelligently categorize experiences: if an experience can be considered a project based on its context and scale, extract it into the `projects` array. If it represents a significant milestone, list it under `achievements`.
 - You may infer the scale and business value of the work based on industry standards to enrich the extracted descriptions, but do not fabricate completely unrelated experiences.
 
+Documents may be Arabic, English, or mixed. Recognize Arabic CV section names
+(الخبرة العملية، التعليم، المهارات، اللغات، الشهادات، المشاريع، الإنجازات)
+and extract Arabic names and dates. Preserve original wording for provenance.
+Free-text fields follow the injected OUTPUT LANGUAGE policy.
+
 OUTPUT
 Return ONLY JSON matching the CareerExtractionResult schema. No prose.
+- profile: object with contact and positioning found in the document: `full_name`, `headline`, `summary`, `email`, `phone`, `location`, `linkedin`. Leave a field empty if it is not present; do not guess.
 - experiences: array of objects. For each role, you MUST extract the company name into `organization` and the role name into `job_title`. Also extract `start_date`, `end_date`, `location`, `projects`, `achievements`, `responsibilities`, `technologies`, and `skills` (as arrays of plain strings) associated with that role.
 - skills: array of objects {"name": string, "category": string}, never bare strings
 - achievements (global): array of plain strings (description with metrics inline), never objects

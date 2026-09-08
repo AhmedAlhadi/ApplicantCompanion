@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..llm.base import LLMRequest
 from ..llm.router import route_task
 from ..models import AgentExecution
+from ..prompts.language import content_language_for_user, output_language_block
 from ..prompts.registry import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,11 @@ class BaseAgent:
             prompt_tokens = 0
             completion_tokens = 0
             result = None
+            lang = content_language_for_user(ctx.db, ctx.user_id)
+            system = self.prompt.system if self.prompt else ""
+            if system:
+                system = f"{system}\n\n{output_language_block(lang)}"
+            user_message = f"OUTPUT_LANGUAGE: {lang}\n\n{user_message}"
             for attempt in range(self.validation_retries + 1):
                 repair_context = ""
                 if attempt:
@@ -93,7 +99,7 @@ class BaseAgent:
                 request = LLMRequest(
                     prompt_name=self.prompt.name if self.prompt else self.name,
                     prompt_version=self.prompt.version if self.prompt else "",
-                    system=self.prompt.system if self.prompt else "",
+                    system=system,
                     user=user_message + repair_context,
                     response_schema=schema,
                     max_tokens=self.max_tokens,

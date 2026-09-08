@@ -26,6 +26,20 @@ DEGREE_LEVELS = {
     "doctorate": 5,
     "doctoral": 5,
     "phd": 5,
+    "ثانوية عامة": 1,
+    "الثانوية العامة": 1,
+    "ثانوية": 1,
+    "الثانوية": 1,
+    "ثانوي": 1,
+    "توجيهي": 1,
+    "دبلوم": 2,
+    "ليسانس": 3,
+    "بكالوريوس": 3,
+    "البكالوريوس": 3,
+    "ماجستير": 4,
+    "الماجستير": 4,
+    "دكتوراه": 5,
+    "الدكتوراه": 5,
 }
 
 
@@ -37,6 +51,8 @@ def degree_level(value: str) -> int:
             continue
         # Generic "diploma" must not outrank an explicit secondary/high-school phrase.
         if name == "diploma" and ("high school" in lowered or "secondary" in lowered):
+            continue
+        if name == "دبلوم" and ("ثانوي" in lowered or "توجيهي" in lowered):
             continue
         ranks.append(rank)
     return max(ranks, default=0)

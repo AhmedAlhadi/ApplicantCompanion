@@ -32,6 +32,14 @@ from ..workers.runner import subscribe, unsubscribe
 router = APIRouter(prefix="/api", tags=["misc"])
 
 
+def _normalize_unit_interval(value: float) -> float:
+    """Guard against legacy/LLM values stored on a 0-100 scale: scores are
+    contractually 0..1, so anything above 1 is treated as a percentage."""
+    if value > 1.0:
+        value = value / 100.0
+    return min(max(value, 0.0), 1.0)
+
+
 # ── templates (§28) ──────────────────────────────────────────────────────────
 
 
@@ -65,7 +73,11 @@ def dashboard_stats(db: Session = Depends(get_db), user: User = Depends(get_curr
     latest = list(latest_by_job.values())
 
     avg_fit = sum(s.overall_score for s in latest) / len(latest) if latest else 0.0
-    ats_values = [a.ats_score_snapshot for a in apps if a.ats_score_snapshot is not None]
+    ats_values = [
+        _normalize_unit_interval(a.ats_score_snapshot)
+        for a in apps
+        if a.ats_score_snapshot is not None
+    ]
     avg_ats = sum(ats_values) / len(ats_values) if ats_values else 0.0
 
     now = datetime.now(timezone.utc)
@@ -88,8 +100,8 @@ def dashboard_stats(db: Session = Depends(get_db), user: User = Depends(get_curr
     return {
         "total_applications": len(apps),
         "by_status": by_status,
-        "average_fit": round(avg_fit, 4),
-        "average_ats": round(avg_ats, 4),
+        "average_fit": round(min(max(avg_fit, 0.0), 1.0), 4),
+        "average_ats": round(min(max(avg_ats, 0.0), 1.0), 4),
         "applications_this_month": this_month,
         "top_opportunities": top_opportunities,
     }
@@ -103,11 +115,15 @@ def get_settings_endpoint(db: Session = Depends(get_db), user: User = Depends(ge
     from ..config import get_settings
     from ..scoring.engine import DEFAULT_WEIGHTS
 
+    from ..prompts.language import DEFAULT_LANGUAGE, normalize_language
+
     stored = all_user_settings(db, user.id)
     return {
         "score_threshold": stored.get("score_threshold", get_settings().score_threshold),
         "scoring_weights": stored.get("scoring_weights", DEFAULT_WEIGHTS),
         "model_routing": stored.get("model_routing", routing_table()),
+        "ui_language": normalize_language(stored.get("ui_language"), DEFAULT_LANGUAGE),
+        "content_language": normalize_language(stored.get("content_language"), DEFAULT_LANGUAGE),
     }
 
 
@@ -119,9 +135,15 @@ def update_settings(payload: SettingsUpdate, request: Request, db: Session = Dep
         total = sum(payload.scoring_weights.values())
         if abs(total - 1.0) > 0.01:
             raise HTTPException(422, f"Scoring weights must sum to 1.0 (got {total:.3f})")
+        if any(v < 0 for v in payload.scoring_weights.values()):
+            raise HTTPException(422, "Scoring weights must be non-negative")
         set_user_setting(db, user.id, "scoring_weights", payload.scoring_weights)
     if payload.model_routing is not None:
         set_user_setting(db, user.id, "model_routing", payload.model_routing)
+    if payload.ui_language is not None:
+        set_user_setting(db, user.id, "ui_language", payload.ui_language)
+    if payload.content_language is not None:
+        set_user_setting(db, user.id, "content_language", payload.content_language)
     from ..security.auth import audit
 
     audit(db, user, "settings.update", "user_setting", user.id, payload.model_dump(exclude_none=True), request)

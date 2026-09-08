@@ -1,10 +1,13 @@
+import { FileStack } from "lucide-react";
 import { api } from "../api/client";
 import type { Application } from "../api/types";
 import { Empty, Link, useApi } from "../components/ui";
+import { useT } from "../lib/i18n";
 
 const STATUSES = ["draft", "ready", "submitted", "interview", "rejected", "offer", "withdrawn"];
 
 export default function Applications() {
+  const { t } = useT();
   const { data, loading, reload } = useApi<Application[]>(() => api.get("/api/applications"));
 
   const setStatus = async (id: string, status: string) => {
@@ -14,31 +17,40 @@ export default function Applications() {
 
   return (
     <>
-      <h1 className="page-title">Applications</h1>
-      <p className="page-sub">Track every application from draft to outcome, with lessons learned feeding future applications (§8).</p>
-      {loading && <p className="muted">Loading…</p>}
-      {!loading && !data?.length && <Empty>No applications yet — analyze a job first, then open its application workspace.</Empty>}
+      <h1 className="page-title">{t("applications.title")}</h1>
+      <p className="page-sub">{t("applications.sub")}</p>
+      {loading && <p className="muted">{t("common.loading")}</p>}
+      {!loading && !data?.length && <Empty icon={FileStack}>{t("applications.empty")}</Empty>}
       {!!data?.length && (
         <div className="panel">
           <table>
             <thead>
-              <tr><th>Position</th><th>Organization</th><th>Deadline</th><th>Fit</th><th>ATS</th><th>Status</th><th>Outcome / notes</th><th></th></tr>
+              <tr>
+                <th>{t("applications.position")}</th>
+                <th>{t("applications.organization")}</th>
+                <th>{t("applications.deadline")}</th>
+                <th>{t("applications.fit")}</th>
+                <th>{t("applications.ats")}</th>
+                <th>{t("applications.status")}</th>
+                <th>{t("applications.notes")}</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
               {data.map((a) => (
                 <tr key={a.id}>
-                  <td><Link to={`/applications/${a.id}`}>{a.job?.position_title || "Untitled"}</Link></td>
+                  <td><Link to={`/applications/${a.id}`}>{a.job?.position_title || t("common.untitled")}</Link></td>
                   <td>{a.job?.organization_name}</td>
                   <td className="muted">{a.job?.deadline || "—"}</td>
                   <td style={{ fontWeight: 700 }}>{a.fit_score != null ? `${Math.round(a.fit_score * 100)}%` : "—"}</td>
                   <td>{a.ats_score_snapshot != null ? `${Math.round(a.ats_score_snapshot * 100)}%` : "—"}</td>
                   <td>
                     <select value={a.status} onChange={(e) => setStatus(a.id, e.target.value)} style={{ width: "auto", padding: "4px 8px" }}>
-                      {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {STATUSES.map((s) => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
                     </select>
                   </td>
                   <td className="small muted">{a.outcome || a.user_notes || "—"}</td>
-                  <td><Link to={`/applications/${a.id}`}>Open</Link></td>
+                  <td><Link to={`/applications/${a.id}`}>{t("common.open")}</Link></td>
                 </tr>
               ))}
             </tbody>

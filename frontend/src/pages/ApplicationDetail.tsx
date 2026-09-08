@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { FileText, Files, Mail, RefreshCw, Sparkles } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { AppDocument, Application, JobScore, Strategy, Template } from "../api/types";
-import { Empty, ErrorBox, ProgressBar, ProgressStages, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+import { Empty, ErrorBox, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
+import { useT } from "../lib/i18n";
 
 type ThresholdGate = {
   code?: string;
@@ -24,6 +27,7 @@ function isThresholdGate(detail: unknown): detail is ThresholdGate {
 }
 
 export default function ApplicationDetail() {
+  const { t } = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const app = useApi<Application>(() => api.get(`/api/applications/${id}`), [id]);
@@ -67,9 +71,7 @@ export default function ApplicationDetail() {
           code: "BELOW_THRESHOLD",
           score: score.data!.overall_score,
           threshold: score.data!.threshold,
-          message:
-            "Generation is blocked until you approve continuing with a below-threshold fit score. " +
-            "Approve below to generate documents, or cancel the application.",
+          message: t("application.gateMessage"),
           gaps: score.data!.gaps ?? [],
         }
       : null);
@@ -102,12 +104,12 @@ export default function ApplicationDetail() {
           message:
             typeof err.detail.message === "string"
               ? err.detail.message
-              : "Generation is blocked until you approve the below-threshold fit score.",
+              : t("application.gateMessage"),
           gaps: Array.isArray(err.detail.gaps) ? err.detail.gaps : [],
         });
         setError(null);
       } else {
-        setError(err instanceof Error ? err.message : "Generation failed");
+        setError(err instanceof Error ? err.message : t("application.generateFailed"));
       }
     }
   };
@@ -120,12 +122,12 @@ export default function ApplicationDetail() {
       setWorkflowRunId(accepted.workflow_run_id);
     } catch (err) {
       setBusy(null);
-      setError(err instanceof Error ? err.message : "Strategy generation failed");
+      setError(err instanceof Error ? err.message : t("application.strategyFailed"));
     }
   };
 
-  if (app.loading) return <p className="muted">Loading…</p>;
-  if (!a) return <Empty>Application not found.</Empty>;
+  if (app.loading) return <p className="muted">{t("common.loading")}</p>;
+  if (!a) return <Empty>{t("application.notFound")}</Empty>;
 
   const cvTemplates = (templates.data ?? []).filter((t) => t.document_type === "cv");
 
@@ -136,7 +138,7 @@ export default function ApplicationDetail() {
           <h1 className="page-title">{a.job?.position_title || "Application"}</h1>
           <p className="page-sub">
             {a.job?.organization_name} {a.job?.location ? `· ${a.job.location}` : ""}{" "}
-            <Link to={`/jobs/${a.job_id}`} className="small">View job intelligence →</Link>
+            <Link to={`/jobs/${a.job_id}`} className="small">{t("application.viewJob")}</Link>
           </p>
         </div>
         <span className={`badge ${a.status}`} style={{ fontSize: 13 }}>{a.status}</span>
@@ -150,11 +152,11 @@ export default function ApplicationDetail() {
 
       {activeGate && (
         <div className="alert warn">
-          <strong>Approval required</strong>
+          <strong>{t("application.approvalRequired")}</strong>
           <div className="mt">{activeGate.message}</div>
           <div className="small mt">
-            Estimated fit: {Math.round(activeGate.score * 100)}% (threshold {Math.round(activeGate.threshold * 100)}%)
-            {a.user_approved ? "" : " — not yet approved"}
+            {t("application.estimatedFit", { score: Math.round(activeGate.score * 100), threshold: Math.round(activeGate.threshold * 100) })}
+            {a.user_approved ? "" : t("application.notApproved")}
           </div>
           {!!activeGate.gaps?.length && (
             <ul className="small" style={{ marginBottom: 0 }}>
@@ -162,109 +164,102 @@ export default function ApplicationDetail() {
             </ul>
           )}
           <div className="row mt">
-            <button className="success sm" onClick={() => decide("continue")}>Continue anyway</button>
-            <button className="sm" onClick={() => decide("review_gaps")}>Review gaps</button>
-            <button className="danger sm" onClick={() => decide("cancel")}>Cancel application</button>
+            <button className="success sm" onClick={() => decide("continue")}>{t("application.continueAnyway")}</button>
+            <button className="sm" onClick={() => decide("review_gaps")}>{t("application.reviewGaps")}</button>
+            <button className="danger sm" onClick={() => decide("cancel")}>{t("application.cancelApp")}</button>
           </div>
         </div>
       )}
       <ErrorBox error={error} />
 
       <div className="panel">
-        <h3>Application Strategy</h3>
+        <h3>{t("application.strategy")}</h3>
         {strategy.data ? (
           <>
-            <p><strong>Positioning:</strong> {strategy.data.positioning}</p>
-            <p><strong>Messaging:</strong> {strategy.data.messaging_strategy}</p>
+            <p><strong>{t("application.positioning")}</strong> {strategy.data.positioning}</p>
+            <p><strong>{t("application.messaging")}</strong> {strategy.data.messaging_strategy}</p>
             {!!strategy.data.priority_skills?.length && (
-              <><div className="small muted mb">Priority skills</div>
+              <><div className="small muted mb">{t("application.prioritySkills")}</div>
               <div className="pill-list mb">{strategy.data.priority_skills.map((s) => <span className="pill" key={s}>{s}</span>)}</div></>
             )}
             {!!strategy.data.keywords?.length && (
-              <><div className="small muted mb">Keywords to use naturally</div>
+              <><div className="small muted mb">{t("application.keywords")}</div>
               <div className="pill-list mb">{strategy.data.keywords.map((s) => <span className="pill" key={s}>{s}</span>)}</div></>
             )}
             {!!strategy.data.concerns?.length && (
-              <><div className="small muted mb">Concerns to address</div>
+              <><div className="small muted mb">{t("application.concerns")}</div>
               <ul className="small" style={{ marginTop: 0 }}>{strategy.data.concerns.map((c, i) => <li key={i}>{c}</li>)}</ul></>
             )}
             {!!strategy.data.evidence_plan?.length && (
-              <><div className="small muted mb">Evidence plan</div>
+              <><div className="small muted mb">{t("application.evidencePlan")}</div>
               <ul className="small" style={{ marginTop: 0 }}>{strategy.data.evidence_plan.map((e, i) => <li key={i}>{e.requirement}</li>)}</ul></>
             )}
           </>
         ) : (
-          <p className="muted small">No strategy yet.</p>
+          <p className="muted small">{t("application.noStrategy")}</p>
         )}
         <button className="sm mt" onClick={runStrategy} disabled={!!busy}>
-          {busy === "strategy" ? <Spinner /> : null} {strategy.data ? "Regenerate strategy" : "Generate strategy"}
+          {busy === "strategy" ? <Spinner /> : <RefreshCw aria-hidden />} {strategy.data ? t("application.regenStrategy") : t("application.generateStrategy")}
         </button>
         {busy === "strategy" && (
-          <div className="mt">
-            <ProgressBar label="Generating application strategy…" />
-            <ProgressStages workflow={workflowPoll} />
-          </div>
+          <ThinkingProgress phrases={THINKING_PHRASES.strategy} workflow={workflowPoll} />
         )}
       </div>
 
       <div className="panel">
-        <h3>Generate Documents</h3>
+        <h3>{t("application.generateDocs")}</h3>
         {activeGate && (
           <div className="alert warn mb">
-            Document generation is blocked until you approve the below-threshold fit score
-            ({Math.round(activeGate.score * 100)}% &lt; {Math.round(activeGate.threshold * 100)}%).
+            {t("application.genBlocked", { score: Math.round(activeGate.score * 100), threshold: Math.round(activeGate.threshold * 100) })}
           </div>
         )}
         <div className="row mb">
-          <label style={{ margin: 0 }}>Theme</label>
+          <label style={{ margin: 0 }}>{t("application.theme")}</label>
           <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} style={{ width: "auto" }}>
             {cvTemplates.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
           </select>
         </div>
         <div className="row">
-          <button className="primary" onClick={() => generate("cv")} disabled={!!busy || !!activeGate}>{busy === "cv" ? <Spinner /> : null} Generate Targeted CV</button>
-          <button onClick={() => generate("cover-letter")} disabled={!!busy || !!activeGate}>{busy === "cover-letter" ? <Spinner /> : null} Generate Cover Letter</button>
-          <button onClick={() => generate("all")} disabled={!!busy || !!activeGate}>{busy === "all" ? <Spinner /> : null} Generate Both</button>
+          <button className="primary" onClick={() => generate("cv")} disabled={!!busy || !!activeGate}>{busy === "cv" ? <Spinner /> : <FileText aria-hidden />} {t("application.generateCv")}</button>
+          <button onClick={() => generate("cover-letter")} disabled={!!busy || !!activeGate}>{busy === "cover-letter" ? <Spinner /> : <Mail aria-hidden />} {t("application.generateCl")}</button>
+          <button onClick={() => generate("all")} disabled={!!busy || !!activeGate}>{busy === "all" ? <Spinner /> : <Sparkles aria-hidden />} {t("application.generateBoth")}</button>
         </div>
         {busy && busy !== "strategy" && (
-          <div className="mt">
-            <ProgressBar label={busy === "all" ? "Generating CV and cover letter…" : `Generating ${busy.replace("-", " ")}…`} />
-            <ProgressStages workflow={workflowPoll} />
-          </div>
+          <ThinkingProgress phrases={THINKING_PHRASES.docGeneration} workflow={workflowPoll} />
         )}
       </div>
 
       <div className="panel">
-        <h3>Documents</h3>
+        <h3>{t("application.documents")}</h3>
         {docs.data?.length ? (
           <table>
-            <thead><tr><th>Document</th><th>Template</th><th>Version</th><th>Validation</th><th>ATS</th><th></th></tr></thead>
+            <thead><tr><th>{t("application.document")}</th><th>{t("application.template")}</th><th>{t("application.version")}</th><th>{t("application.validation")}</th><th>ATS</th><th></th></tr></thead>
             <tbody>
               {docs.data.map((d) => (
                 <tr key={d.id}>
                   <td>{d.title}</td>
                   <td className="muted">{d.template_key}</td>
-                  <td>v{d.current_version?.version_number ?? 0} {d.current_version?.user_edited ? "(edited)" : ""}</td>
+                  <td>v{d.current_version?.version_number ?? 0} {d.current_version?.user_edited ? t("editor.edited") : ""}</td>
                   <td>
                     {d.current_version?.validation_results
                       ? Object.values(d.current_version.validation_results.issues ?? {}).length === 0
-                        ? <span className="badge verified">passed</span>
-                        : <span className="badge unverified" title={(d.current_version.validation_results.issues ?? []).join("\n")}>review</span>
+                        ? <span className="badge verified">{t("application.passed")}</span>
+                        : <span className="badge unverified" title={(d.current_version.validation_results.issues ?? []).join("\n")}>{t("application.review")}</span>
                       : "—"}
                   </td>
                   <td>{d.current_version?.ats_analysis?.ats_score != null ? `${Math.round((d.current_version.ats_analysis.ats_score as number) * 100)}%` : "—"}</td>
-                  <td><Link to={`/documents/${d.id}`}>Open editor</Link></td>
+                  <td><Link to={`/documents/${d.id}`}>{t("application.openEditor")}</Link></td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <Empty>No documents generated yet.</Empty>
+          <Empty icon={Files}>{t("application.noDocs")}</Empty>
         )}
       </div>
 
       <div className="panel">
-        <h3>Notes & Lessons Learned</h3>
+        <h3>{t("application.notes")}</h3>
         <NotesEditor app={a} onSaved={app.reload} />
       </div>
     </>
@@ -272,18 +267,19 @@ export default function ApplicationDetail() {
 }
 
 function NotesEditor({ app, onSaved }: { app: Application; onSaved: () => void }) {
+  const { t } = useT();
   const [notes, setNotes] = useState(app.user_notes ?? "");
   const [lessons, setLessons] = useState(app.lessons_learned ?? "");
   const [outcome, setOutcome] = useState(app.outcome ?? "");
   return (
     <form onSubmit={async (e) => { e.preventDefault(); await api.put(`/api/applications/${app.id}`, { user_notes: notes, lessons_learned: lessons, outcome }); onSaved(); }}>
-      <label>User notes</label>
+      <label>{t("application.userNotes")}</label>
       <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
       <div className="form-row">
-        <div><label>Outcome</label><input value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="e.g. invited to interview" /></div>
-        <div><label>Lessons learned</label><input value={lessons} onChange={(e) => setLessons(e.target.value)} /></div>
+        <div><label>{t("application.outcome")}</label><input value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder={t("application.outcomePh")} /></div>
+        <div><label>{t("application.lessons")}</label><input value={lessons} onChange={(e) => setLessons(e.target.value)} /></div>
       </div>
-      <button className="primary sm mt">Save</button>
+      <button className="primary sm mt">{t("common.save")}</button>
     </form>
   );
 }

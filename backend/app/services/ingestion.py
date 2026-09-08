@@ -19,6 +19,7 @@ from ..models import (
     Achievement,
     CareerDocument,
     CareerEvidence,
+    CareerProfile,
     Certification,
     Education,
     Experience,
@@ -35,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 
 def extract_text(filename: str, data: bytes) -> str:
-    """Best-effort text extraction. PDFs use a minimal built-in extractor;
-    DOCX reads word/document.xml from the zip container."""
+    """Best-effort text extraction. PDFs prefer pypdf for Unicode; DOCX
+    reads word/document.xml from the zip container."""
     lower = filename.lower()
     if lower.endswith((".txt", ".md")):
         return data.decode("utf-8", errors="replace")
@@ -55,6 +56,21 @@ def extract_text(filename: str, data: bytes) -> str:
 
 
 def _extract_pdf_text(data: bytes) -> str:
+    """Extract PDF text with pypdf (Unicode-aware), falling back to streams."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data))
+        parts = [(page.extract_text() or "") for page in reader.pages]
+        text = "\n".join(parts).strip()
+        if text:
+            return text
+    except Exception as exc:
+        logger.warning("pypdf text extraction failed: %s", exc)
+    return _extract_pdf_text_legacy(data)
+
+
+def _extract_pdf_text_legacy(data: bytes) -> str:
     """Minimal PDF text extraction: pull strings from content streams.
 
     Handles the common single-byte-encoded case well enough for ingestion;
@@ -239,6 +255,8 @@ class IngestionService:
             )
             auto_applied["languages"] += 1
 
+        profile_applied = self._apply_extracted_profile(result)
+
         extracted_items = self._build_extracted_items(result)
         proposals: list[dict] = []
         pending_id = None
@@ -293,12 +311,64 @@ class IngestionService:
             "pending_ingestion_id": pending_id,
             "auto_applied": auto_applied,
             "proposals_count": len(proposals),
+            "profile": profile_applied,
             # Backward-compatible alias used by older clients/tests
             "created": auto_applied if not pending_id else {
                 **auto_applied,
                 "pending_review": len(proposals),
             },
         }
+
+    def _apply_extracted_profile(self, result) -> dict:
+        """Fill empty CareerProfile fields from extraction; never overwrite user values."""
+        extracted = getattr(result, "profile", None)
+        payload = {
+            "full_name": (getattr(extracted, "full_name", None) or "").strip(),
+            "headline": (getattr(extracted, "headline", None) or "").strip(),
+            "summary": (getattr(extracted, "summary", None) or getattr(result, "summary", "") or "").strip(),
+            "email": (getattr(extracted, "email", None) or "").strip(),
+            "phone": (getattr(extracted, "phone", None) or "").strip(),
+            "location": (getattr(extracted, "location", None) or "").strip(),
+            "linkedin": (getattr(extracted, "linkedin", None) or "").strip(),
+        }
+        if not any(payload.values()):
+            return {}
+
+        profile = (
+            self.db.query(CareerProfile)
+            .filter(CareerProfile.user_id == self.user.id)
+            .first()
+        )
+        if profile is None:
+            profile = CareerProfile(user_id=self.user.id)
+            self.db.add(profile)
+            self.db.flush()
+
+        applied: dict[str, str] = {}
+        for field in ("full_name", "headline", "summary", "email", "phone", "location"):
+            incoming = payload[field]
+            if incoming and not (getattr(profile, field) or "").strip():
+                setattr(profile, field, incoming)
+                applied[field] = incoming
+        if payload["linkedin"]:
+            links = dict(profile.links or {})
+            if not (links.get("linkedin") or "").strip():
+                links["linkedin"] = payload["linkedin"]
+                profile.links = links
+                applied["linkedin"] = payload["linkedin"]
+        return applied
+
+    def accept_suggested(self, pending: PendingIngestion) -> dict:
+        """Confirm every proposal using the agent's suggested action."""
+        decisions = []
+        for prop in pending.proposals or []:
+            action = prop.get("action") or "create"
+            decisions.append({
+                "proposal_id": prop.get("proposal_id"),
+                "action": action,
+                "target_id": prop.get("target_id") if action == "merge" else None,
+            })
+        return self.confirm_pending(pending, decisions)
 
     def confirm_pending(self, pending: PendingIngestion, decisions: list[dict]) -> dict:
         """Apply user-confirmed merge/create decisions and mark pending completed."""

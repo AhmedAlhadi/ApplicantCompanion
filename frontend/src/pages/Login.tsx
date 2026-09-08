@@ -1,16 +1,18 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { LogIn, UserPlus } from "lucide-react";
 import { api, setToken } from "../api/client";
 import type { User } from "../api/types";
+import { LanguagePickers } from "../components/LanguageSettings";
+import { useT } from "../lib/i18n";
 
 export default function Login() {
+  const { t } = useT();
   const [email, setEmail] = useState("demo@example.com");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const navigate = useNavigate();
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -22,8 +24,7 @@ export default function Login() {
           ? await api.post<{ access_token: string; user: User }>("/api/auth/login", { email, password })
           : await api.post<{ access_token: string; user: User }>("/api/auth/register", { email, password, full_name: fullName });
       setToken(resp.access_token);
-      navigate("/");
-      window.location.reload();
+      window.location.assign("/onboarding");
     } catch (err: any) {
       setError(typeof err.detail === "string" ? err.detail : err.message);
     } finally {
@@ -37,38 +38,41 @@ export default function Login() {
         Applicant<span>Companion</span>
       </div>
       <p className="muted" style={{ textAlign: "center" }}>
-        Career intelligence workspace
+        {t("login.tagline")}
       </p>
       <form className="panel" onSubmit={submit}>
         {mode === "register" && (
           <>
-            <label>Full name</label>
+            <label>{t("login.fullName")}</label>
             <input value={fullName} onChange={(e) => setFullName(e.target.value)} />
           </>
         )}
-        <label>Email</label>
+        <label>{t("login.email")}</label>
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <label>Password</label>
+        <label>{t("login.password")}</label>
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
         {error && <div className="alert error mt">{error}</div>}
         <button className="primary mt" style={{ width: "100%", justifyContent: "center" }} disabled={busy}>
-          {mode === "login" ? "Sign in" : "Create workspace"}
+          {mode === "login" ? <><LogIn aria-hidden /> {t("login.signIn")}</> : <><UserPlus aria-hidden /> {t("login.createWorkspace")}</>}
         </button>
         <p className="small muted mt" style={{ textAlign: "center" }}>
           {mode === "login" ? (
             <>
-              First time?{" "}
+              {t("login.firstTime")}{" "}
               <a href="#" onClick={(e) => (e.preventDefault(), setMode("register"))}>
-                Create the workspace account
+                {t("login.createAccount")}
               </a>
             </>
           ) : (
             <a href="#" onClick={(e) => (e.preventDefault(), setMode("login"))}>
-              Back to sign in
+              {t("login.backToSignIn")}
             </a>
           )}
         </p>
       </form>
+      <div className="panel">
+        <LanguagePickers />
+      </div>
     </div>
   );
 }

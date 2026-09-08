@@ -9,6 +9,7 @@ import type {
   Requirement,
 } from "../api/types";
 import { Empty, useApi } from "./ui";
+import { t } from "../lib/i18n";
 
 type Column = "requirement" | "competency" | "evidence" | "technology";
 type Strength = "strong" | "partial" | "related";
@@ -35,13 +36,6 @@ const COL_X: Record<Column, number> = {
   technology: 900,
 };
 
-const COL_LABEL: Record<Column, string> = {
-  requirement: "Requirements",
-  competency: "Competencies",
-  evidence: "Evidence",
-  technology: "Technology",
-};
-
 const COL_COLOR: Record<Column, string> = {
   requirement: "#a78bfa",
   competency: "#5b8cff",
@@ -49,16 +43,19 @@ const COL_COLOR: Record<Column, string> = {
   technology: "#7dd3fc",
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  mandatory_qualifications: "Mandatory Qualifications",
-  relevant_experience: "Relevant Experience",
-  technical_skills: "Technical Skills",
-  responsibilities: "Responsibilities",
-  domain_knowledge: "Domain Knowledge",
-  leadership_management: "Leadership",
-  education_certifications: "Education",
-  language_other: "Languages",
-};
+function colLabel(column: Column) {
+  return t(`evidence.${column}`);
+}
+
+function competencyFor(req: Requirement, competencies: string[]) {
+  const hay = norm(`${req.text} ${(req.keywords || []).join(" ")}`);
+  const hit = competencies.find((c) => {
+    const key = norm(c);
+    return key && (hay.includes(key) || key.split(" ").some((w) => w.length > 3 && hay.includes(w)));
+  });
+  const category = t(`category.${req.category}`);
+  return hit || (category !== `category.${req.category}` ? category : req.category) || t("evidence.general");
+}
 
 function norm(s: string) {
   return s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, " ").trim();
@@ -77,15 +74,6 @@ function matchStrength(status?: string): Strength {
   if (status === "MATCHED") return "strong";
   if (status === "PARTIALLY_MATCHED" || status === "TRANSFERABLE") return "partial";
   return "related";
-}
-
-function competencyFor(req: Requirement, competencies: string[]) {
-  const hay = norm(`${req.text} ${(req.keywords || []).join(" ")}`);
-  const hit = competencies.find((c) => {
-    const key = norm(c);
-    return key && (hay.includes(key) || key.split(" ").some((w) => w.length > 3 && hay.includes(w)));
-  });
-  return hit || CATEGORY_LABELS[req.category] || req.category || "General competency";
 }
 
 function spread(count: number, start: number, end: number) {
@@ -250,31 +238,31 @@ export function EvidenceGraph({ analysis }: { analysis: JobAnalysisResponse }) {
 
   const job = analysis.job;
   if (!analysis.requirements?.length) {
-    return <Empty>Analyze this job to see how your career evidence maps to its requirements.</Empty>;
+    return <Empty>{t("evidence.empty")}</Empty>;
   }
-  if (career.loading) return <p className="muted">Building evidence map…</p>;
+  if (career.loading) return <p className="muted">{t("evidence.building")}</p>;
 
   return (
     <div className="eg-panel">
       <div className="row spread mb">
         <div>
-          <h3 className="ck-graph-title">Career to Job Evidence Map</h3>
+          <h3 className="ck-graph-title">{t("evidence.title")}</h3>
           <p className="small muted" style={{ margin: 0 }}>
-            {job.position_title || "Untitled role"} · {job.organization_name || "Unknown organization"}
+            {job.position_title || t("common.untitledRole")} · {job.organization_name || t("common.unknownOrg")}
           </p>
         </div>
         <div className="eg-legend">
-          <span><span className="ck-edge-swatch strong" /> Strong</span>
-          <span><span className="ck-edge-swatch partial" /> Partial</span>
-          <span><span className="ck-edge-swatch related" /> Related</span>
+          <span><span className="ck-edge-swatch strong" /> {t("evidence.strong")}</span>
+          <span><span className="ck-edge-swatch partial" /> {t("evidence.partial")}</span>
+          <span><span className="ck-edge-swatch related" /> {t("evidence.related")}</span>
         </div>
       </div>
 
       <div className="eg-map">
         <svg className="eg-svg" viewBox="0 0 1040 540" role="img" aria-label="Career to job evidence graph">
-          {(Object.keys(COL_LABEL) as Column[]).map((column) => (
+          {(Object.keys(COL_X) as Column[]).map((column) => (
             <text key={column} className="ck-cluster-label" x={COL_X[column]} y={24} textAnchor="middle">
-              {COL_LABEL[column]}
+              {colLabel(column)}
             </text>
           ))}
           {graph.edges.map((e, i) => {
@@ -330,7 +318,7 @@ export function EvidenceGraph({ analysis }: { analysis: JobAnalysisResponse }) {
         {selected && (
           <div className="ck-map-detail">
             <span className="badge" style={{ color: COL_COLOR[selected.column], background: "transparent", border: `1px solid ${COL_COLOR[selected.column]}` }}>
-              {COL_LABEL[selected.column]}
+              {colLabel(selected.column)}
             </span>
             <div className="title mt">{selected.label}</div>
             {selected.sub && <div className="meta">{selected.sub}</div>}

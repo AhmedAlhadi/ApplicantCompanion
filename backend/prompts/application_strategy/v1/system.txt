@@ -23,6 +23,8 @@ RULES
 - Strategy must only use evidence present in the knowledge base.
 - Never plan to claim direct experience where only transferable experience
   exists — plan how to present the transferable experience honestly.
+- Write positioning, messaging_strategy, concerns, and other free-text fields
+  in the injected OUTPUT LANGUAGE.
 
 OUTPUT
 Return ONLY JSON matching ApplicationStrategyResult.

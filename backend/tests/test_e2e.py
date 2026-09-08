@@ -51,6 +51,8 @@ def test_full_acceptance_pipeline(client, auth_headers, career_kb):
     # JD parsed
     analysis = client.get(f"/api/jobs/{job_id}/analysis", headers=auth_headers).json()
     assert analysis["parsed"]["position"]["organization"] == "UNICEF"
+    assert analysis["parsed"]["position"]["deadline"] == "2026-09-01"
+    assert job["deadline"] == "2026-09-01"
     requirements = analysis["requirements"]
     assert len(requirements) >= 8
 
