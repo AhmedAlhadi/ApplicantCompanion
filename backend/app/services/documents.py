@@ -27,6 +27,7 @@ from ..schemas.agents import GeneratedCoverLetter, GeneratedCV, ValidationReport
 from ..templates.renderer import render_text
 from .document_postprocess import ensure_all_experiences, sanitize_cover_letter_content, sanitize_cv_content
 from .serializers import full_knowledge_base, to_dict
+from .settings import get_user_setting
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,11 @@ class DocumentService:
             "captured_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def _default_template(self, document_type: str) -> str:
+        key = "default_cv_template" if document_type == "cv" else "default_cover_letter_template"
+        stored = get_user_setting(self.db, self.user.id, key, "minimal-ats")
+        return stored or "minimal-ats"
+
     def generate_cv(
         self,
         application: Application,
@@ -144,8 +150,9 @@ class DocumentService:
         result: GeneratedCV = agent.run(ctx, **payload)
 
         cv = self.db.query(CV).filter(CV.application_id == application.id).first()
+        resolved_key = template_key or self._default_template("cv")
         if cv is None:
-            cv = CV(application_id=application.id, template_key=template_key or "minimal-ats",
+            cv = CV(application_id=application.id, template_key=resolved_key,
                     title=f"CV — {self.db.get(Job, application.job_id).position_title or 'Application'}")
             self.db.add(cv)
             self.db.flush()
@@ -210,10 +217,11 @@ class DocumentService:
         letter = (
             self.db.query(CoverLetter).filter(CoverLetter.application_id == application.id).first()
         )
+        resolved_key = template_key or self._default_template("cover_letter")
         if letter is None:
             letter = CoverLetter(
                 application_id=application.id,
-                template_key=template_key or "minimal-ats",
+                template_key=resolved_key,
                 title=f"Cover Letter — {job.position_title or 'Application'}",
             )
             self.db.add(letter)

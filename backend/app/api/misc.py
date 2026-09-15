@@ -124,6 +124,8 @@ def get_settings_endpoint(db: Session = Depends(get_db), user: User = Depends(ge
         "model_routing": stored.get("model_routing", routing_table()),
         "ui_language": normalize_language(stored.get("ui_language"), DEFAULT_LANGUAGE),
         "content_language": normalize_language(stored.get("content_language"), DEFAULT_LANGUAGE),
+        "default_cv_template": stored.get("default_cv_template") or "minimal-ats",
+        "default_cover_letter_template": stored.get("default_cover_letter_template") or "minimal-ats",
     }
 
 
@@ -144,6 +146,10 @@ def update_settings(payload: SettingsUpdate, request: Request, db: Session = Dep
         set_user_setting(db, user.id, "ui_language", payload.ui_language)
     if payload.content_language is not None:
         set_user_setting(db, user.id, "content_language", payload.content_language)
+    if payload.default_cv_template is not None:
+        set_user_setting(db, user.id, "default_cv_template", payload.default_cv_template)
+    if payload.default_cover_letter_template is not None:
+        set_user_setting(db, user.id, "default_cover_letter_template", payload.default_cover_letter_template)
     from ..security.auth import audit
 
     audit(db, user, "settings.update", "user_setting", user.id, payload.model_dump(exclude_none=True), request)

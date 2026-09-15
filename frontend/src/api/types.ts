@@ -5,6 +5,34 @@ export interface User {
   email: string;
   full_name: string;
   is_admin: boolean;
+  is_active?: boolean;
+  avatar_url?: string | null;
+}
+
+export interface AuthConfig {
+  google_client_id: string;
+  registration_open: boolean;
+}
+
+export interface AdminStats {
+  total_users: number;
+  active_users: number;
+  admin_users: number;
+  created_this_month: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  full_name: string;
+  is_admin: boolean;
+  is_active: boolean;
+  created_at: string;
+  has_password: boolean;
+  google_linked: boolean;
+  avatar_url: string | null;
+  job_count: number;
+  application_count: number;
 }
 
 export interface Job {
@@ -271,6 +299,8 @@ export interface UserSettings {
   model_routing: Record<string, string>;
   ui_language: AppLanguage;
   content_language: AppLanguage;
+  default_cv_template: string;
+  default_cover_letter_template: string;
 }
 
 export interface AgentExecution {

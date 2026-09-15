@@ -72,7 +72,7 @@ class ResearchFetcher:
                 url,
                 timeout=self.settings.research_timeout_seconds,
                 follow_redirects=True,
-                headers={"User-Agent": "ApplicantCompanion-Research/1.0"},
+                headers={"User-Agent": "Serah-Research/1.0"},
             )
             resp.raise_for_status()
         except httpx.HTTPError as exc:

@@ -22,8 +22,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         limit = get_settings().rate_limit_per_minute
-        if limit > 0 and request.url.path.startswith("/api/"):
-            key = request.client.host if request.client else "unknown"
+        path = request.url.path
+        if (
+            limit > 0
+            and path.startswith("/api/")
+            and path not in {"/api/health", "/api/auth/config"}
+        ):
+            forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            key = forwarded or (request.client.host if request.client else "unknown")
             now = time.monotonic()
             window = self._hits[key]
             while window and now - window[0] > 60:

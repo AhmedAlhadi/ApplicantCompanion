@@ -6,9 +6,13 @@ model and controls:
 ## Authentication & authorization
 
 - JWT bearer tokens (HS256, `SECRET_KEY` from env, configurable expiry).
-- Passwords hashed with bcrypt.
-- Registration is open **only for the first user** (workspace owner); afterwards
-  it returns 403 — the platform is single-user-first by design.
+- Passwords hashed with bcrypt. Google Sign-In users may have no password;
+  the backend verifies a Google ID token (`GOOGLE_CLIENT_ID`) and issues the
+  same JWT. Email/password registration is open **only for the first user**;
+  afterwards it returns 403. Google Sign-In can provision later users as
+  non-admins. An existing admin can create password accounts via `/api/admin/users`.
+- Admin routes (`/api/admin/*`) require `is_admin`. Admins manage accounts only
+  and cannot read another user's career, jobs, or applications.
 - Every query is scoped by `user_id`; object lookups verify ownership, so users
   can never read each other's career data (tested in `test_security.py` /
   `test_career_api.py`).

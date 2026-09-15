@@ -3,6 +3,33 @@ import { api } from "../api/client";
 import type { AppLanguage } from "../api/types";
 import { getContentLanguage, setContentLanguage, useT } from "../lib/i18n";
 
+export function LoginLangFlag() {
+  const { t, lang, setLang } = useT();
+
+  return (
+    <div className="auth-lang-flag" role="group" aria-label={t("login.switchLanguage")}>
+      <button
+        type="button"
+        className={lang === "en" ? "active" : ""}
+        onClick={() => setLang("en")}
+        aria-pressed={lang === "en"}
+        title={t("language.english")}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        className={lang === "ar" ? "active" : ""}
+        onClick={() => setLang("ar")}
+        aria-pressed={lang === "ar"}
+        title={t("language.arabic")}
+      >
+        AR
+      </button>
+    </div>
+  );
+}
+
 export function LanguagePickers({ persist = false }: { persist?: boolean }) {
   const { t, lang, setLang } = useT();
   const [content, setContent] = useState<AppLanguage>(() => getContentLanguage());

@@ -7,13 +7,15 @@ import {
   FileStack,
   Files,
   LayoutDashboard,
-  LayoutTemplate,
   LogOut,
-  Mail,
+  Menu,
   Moon,
   Network,
   Settings as SettingsIcon,
+  Shield,
   Sun,
+  Users,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { api, getToken, setToken, workflowEventsUrl } from "../api/client";
@@ -21,56 +23,38 @@ import type { User, WorkflowRun } from "../api/types";
 import { useT } from "../lib/i18n";
 import { useTheme } from "../lib/theme";
 
-type NavChild = { to: string; end?: boolean };
-type NavGroup = { to: string; end?: boolean; icon: LucideIcon; children?: NavChild[] };
-
-const NAV: Omit<NavGroup, "label">[] = [
-  { to: "/", end: true, icon: LayoutDashboard },
-  {
-    to: "/career",
-    icon: Network,
-    children: [
-      { to: "/career" },
-      { to: "/career?tab=experience" },
-      { to: "/career?tab=skills" },
-      { to: "/career?tab=achievements" },
-    ],
-  },
-  {
-    to: "/jobs",
-    icon: Briefcase,
-    children: [
-      { to: "/jobs", end: true },
-    ],
-  },
-  { to: "/applications", icon: FileStack },
-  { to: "/documents", icon: Files },
-  { to: "/templates", icon: LayoutTemplate },
-  { to: "/cover-letter-templates", icon: Mail },
-  { to: "/settings", icon: SettingsIcon },
-  { to: "/ai-config", icon: Cpu },
-];
-
-function careerTab(search: string) {
-  return new URLSearchParams(search).get("tab") || "overview";
+export function Brand() {
+  const { t } = useT();
+  return (
+    <div className="brand">
+      <span>{t("common.appName")}</span>
+    </div>
+  );
 }
 
-function isParentActive(item: NavGroup, pathname: string) {
+type NavItem = { to: string; end?: boolean; icon: LucideIcon };
+
+const NAV: NavItem[] = [
+  { to: "/", end: true, icon: LayoutDashboard },
+  { to: "/career", icon: Network },
+  { to: "/jobs", icon: Briefcase },
+  { to: "/applications", icon: FileStack },
+  { to: "/documents", icon: Files },
+];
+
+function isNavActive(item: NavItem, pathname: string) {
   const url = new URL(item.to, "http://local");
   if (item.end) return pathname === url.pathname;
   return pathname === url.pathname || (url.pathname !== "/" && pathname.startsWith(`${url.pathname}/`));
 }
 
-function isChildActive(to: string, pathname: string, search: string, end?: boolean) {
-  const url = new URL(to, "http://local");
-  if (url.pathname !== pathname) {
-    if (!end && url.pathname !== "/" && pathname.startsWith(`${url.pathname}/`)) return true;
-    return false;
+function userInitials(user: User) {
+  const name = user.full_name.trim();
+  if (name) {
+    const parts = name.split(/\s+/);
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase() || "?";
   }
-  if (url.pathname === "/career") {
-    return careerTab(search) === (url.searchParams.get("tab") || "overview");
-  }
-  return true;
+  return (user.email[0] || "?").toUpperCase();
 }
 
 export function useApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
@@ -97,6 +81,10 @@ export function Layout({ user }: { user: User }) {
   const location = useLocation();
   const { theme, setPref } = useTheme();
   const { t } = useT();
+  const [navOpen, setNavOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const logout = () => {
     setToken(null);
     navigate("/login");
@@ -107,27 +95,39 @@ export function Layout({ user }: { user: User }) {
     "/jobs": t("nav.jobs"),
     "/applications": t("nav.applications"),
     "/documents": t("nav.documents"),
-    "/templates": t("nav.cvTemplates"),
-    "/cover-letter-templates": t("nav.coverLetters"),
-    "/settings": t("nav.settings"),
-    "/ai-config": t("nav.aiConfig"),
   };
-  const childLabels: Record<string, string> = {
-    "/career": t("nav.knowledgeGraph"),
-    "/career?tab=experience": t("nav.rolesProjects"),
-    "/career?tab=skills": t("nav.skills"),
-    "/career?tab=achievements": t("nav.achievements"),
-    "/jobs": t("nav.jobMatch"),
-  };
+
+  useEffect(() => {
+    setNavOpen(false);
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        setNavOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${navOpen ? " nav-open" : ""}`}>
+      {navOpen && <button type="button" className="sidebar-backdrop" aria-label={t("nav.closeNav")} onClick={() => setNavOpen(false)} />}
       <aside className="sidebar">
-        <div className="brand">
-          Applicant<span>Companion</span>
-        </div>
+        <Brand />
         <nav>
           {NAV.map((item) => {
-            const parentActive = isParentActive(item, location.pathname);
+            const parentActive = isNavActive(item, location.pathname);
             const Icon = item.icon;
             return (
               <div key={item.to} className="nav-group">
@@ -135,60 +135,90 @@ export function Layout({ user }: { user: User }) {
                   to={item.to}
                   end={item.end}
                   className={() => (parentActive ? "active" : "")}
+                  onClick={() => setNavOpen(false)}
                 >
                   <Icon className="nav-icon" aria-hidden />
                   {navLabels[item.to] ?? item.to}
                 </NavLink>
-                {item.children && (
-                  <div className="nav-children">
-                    {item.children.map((child) => (
-                      <NavLink
-                        key={child.to}
-                        to={child.to}
-                        end={child.end}
-                        className={() =>
-                          isChildActive(child.to, location.pathname, location.search, child.end) ? "active" : ""
-                        }
-                      >
-                        {childLabels[child.to] ?? child.to}
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
               </div>
             );
           })}
         </nav>
-        <div className="sidebar-footer">
-          <div className="sidebar-user">
-            <div className="sidebar-user-name">{user.full_name || user.email}</div>
-            <div className="sidebar-user-meta">{user.email}</div>
-            {user.is_admin && <span className="badge needs_review">{t("common.admin")}</span>}
-          </div>
-          <div className="sidebar-footer-row">
-            <button className="ghost sm" onClick={logout}>
-              <LogOut aria-hidden /> {t("common.signOut")}
-            </button>
-            <button
-              className="ghost sm icon-only"
-              onClick={() => setPref(theme === "dark" ? "light" : "dark")}
-              title={theme === "dark" ? t("common.lightMode") : t("common.darkMode")}
-              aria-label={theme === "dark" ? t("common.lightMode") : t("common.darkMode")}
-            >
-              {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
-            </button>
-          </div>
-        </div>
       </aside>
-      <motion.main
-        className="main"
-        key={location.pathname}
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-      >
-        <Outlet />
-      </motion.main>
+      <div className="main-column">
+        <header className="topbar">
+          <button
+            type="button"
+            className="ghost icon-only hamburger"
+            onClick={() => setNavOpen((open) => !open)}
+            aria-label={navOpen ? t("nav.closeNav") : t("nav.openNav")}
+          >
+            {navOpen ? <X aria-hidden /> : <Menu aria-hidden />}
+          </button>
+          <div className="topbar-spacer" />
+          <div className="avatar-wrap" ref={menuRef}>
+            <button
+              type="button"
+              className="avatar-btn"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={t("nav.accountMenu")}
+            >
+              {user.avatar_url ? (
+                <img src={user.avatar_url} alt="" className="avatar-img" referrerPolicy="no-referrer" />
+              ) : (
+                <span className="avatar-initials">{userInitials(user)}</span>
+              )}
+            </button>
+            {menuOpen && (
+              <div className="avatar-menu" role="menu">
+                <div className="avatar-menu-user">
+                  <div className="sidebar-user-name">{user.full_name || user.email}</div>
+                  <div className="sidebar-user-meta">{user.email}</div>
+                  {user.is_admin && <span className="badge needs_review">{t("common.admin")}</span>}
+                </div>
+                <Link to="/settings" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  <SettingsIcon aria-hidden /> {t("nav.settings")}
+                </Link>
+                <Link to="/ai-config" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  <Cpu aria-hidden /> {t("nav.aiConfig")}
+                </Link>
+                {user.is_admin && (
+                  <>
+                    <Link to="/admin" role="menuitem" onClick={() => setMenuOpen(false)}>
+                      <Shield aria-hidden /> {t("nav.admin")}
+                    </Link>
+                    <Link to="/admin/users" role="menuitem" onClick={() => setMenuOpen(false)}>
+                      <Users aria-hidden /> {t("nav.users")}
+                    </Link>
+                  </>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => setPref(theme === "dark" ? "light" : "dark")}
+                >
+                  {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
+                  {theme === "dark" ? t("common.lightMode") : t("common.darkMode")}
+                </button>
+                <button type="button" role="menuitem" onClick={logout}>
+                  <LogOut aria-hidden /> {t("common.signOut")}
+                </button>
+              </div>
+            )}
+          </div>
+        </header>
+        <motion.main
+          className="main"
+          key={location.pathname}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          <Outlet />
+        </motion.main>
+      </div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ os.environ.update(
         "RESEARCH_ENABLED": "false",
         "RATE_LIMIT_PER_MINUTE": "0",
         "SEED_DEMO_DATA": "false",
+        "GOOGLE_CLIENT_ID": "test-google-client-id.apps.googleusercontent.com",
         "LLM_MODEL_EXTRACTION": "mock:deterministic",
         "LLM_MODEL_CLASSIFICATION": "mock:deterministic",
         "LLM_MODEL_RESEARCH": "mock:deterministic",

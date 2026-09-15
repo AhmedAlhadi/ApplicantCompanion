@@ -71,12 +71,24 @@ def _ensure_additive_columns() -> None:
         if "coverage" not in score_cols:
             statements.append("ALTER TABLE job_scores ADD COLUMN coverage FLOAT NOT NULL DEFAULT 1.0")
 
-    if not statements:
-        return
-    with engine.begin() as conn:
-        for stmt in statements:
-            conn.execute(text(stmt))
-            logger.info("Applied schema patch: %s", stmt)
+    user_cols = _table_columns(insp, "users")
+    if user_cols:
+        if "google_sub" not in user_cols:
+            statements.append("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)")
+        if "avatar_url" not in user_cols:
+            statements.append("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(1000)")
+        if engine.dialect.name == "postgresql":
+            statements.append("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL")
+
+    if statements:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+                logger.info("Applied schema patch: %s", stmt)
+
+    if user_cols:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"))
 
 
 def main() -> None:

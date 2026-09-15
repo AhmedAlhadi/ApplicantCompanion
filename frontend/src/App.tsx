@@ -2,7 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useEffect } from "react";
 import { api, getToken } from "./api/client";
 import type { OnboardingStatus, User, UserSettings } from "./api/types";
-import { Layout, useApi } from "./components/ui";
+import { Brand, Layout, useApi } from "./components/ui";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminUsers from "./pages/AdminUsers";
 import AIConfig from "./pages/AIConfig";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import Applications from "./pages/Applications";
@@ -15,12 +17,14 @@ import Jobs from "./pages/Jobs";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
-import Templates from "./pages/Templates";
 import { setContentLanguage, setUiLanguage } from "./lib/i18n";
 
 export default function App() {
   const token = getToken();
-  const me = useApi<User>(() => api.get("/api/auth/me"), [token]);
+  const me = useApi<User | null>(
+    () => (token ? api.get("/api/auth/me") : Promise.resolve(null)),
+    [token],
+  );
   const onboarding = useApi<OnboardingStatus | null>(
     () => (token ? api.get("/api/onboarding") : Promise.resolve(null)),
     [token],
@@ -46,9 +50,7 @@ export default function App() {
   if (me.loading || onboarding.loading) {
     return (
       <div className="boot-splash">
-        <div className="brand">
-          Applicant<span>Companion</span>
-        </div>
+        <Brand />
         <div className="skeleton skeleton-text" style={{ width: 180 }} />
         <div className="skeleton skeleton-text" style={{ width: 120 }} />
       </div>
@@ -91,10 +93,18 @@ export default function App() {
           <Route path="/applications/:id" element={<ApplicationDetail />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/documents/:id" element={<DocumentEditor />} />
-          <Route path="/templates" element={<Templates documentType="cv" />} />
-          <Route path="/cover-letter-templates" element={<Templates documentType="cover_letter" />} />
+          <Route path="/templates" element={<Navigate to="/settings" replace />} />
+          <Route path="/cover-letter-templates" element={<Navigate to="/settings" replace />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/ai-config" element={<AIConfig />} />
+          <Route
+            path="/admin"
+            element={me.data.is_admin ? <AdminDashboard /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/admin/users"
+            element={me.data.is_admin ? <AdminUsers currentUser={me.data} /> : <Navigate to="/" replace />}
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

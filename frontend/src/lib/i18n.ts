@@ -35,6 +35,7 @@ export function getContentLanguage(): AppLanguage {
 export function applyUiLanguage(lang: AppLanguage) {
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+  document.title = t("common.appName");
 }
 
 export function setUiLanguage(lang: AppLanguage) {

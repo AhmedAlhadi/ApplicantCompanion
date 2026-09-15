@@ -1,0 +1,36 @@
+{
+	email admin@useshortlisted.app
+	# Browsers hitting the raw IP often omit SNI; fall back to the IP site
+	# instead of the container's private address (NFR-SEC-002, FR-SLICE-008).
+	default_sni 165.22.93.12
+}
+
+platform.useshortlisted.app {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
+
+# Keep the IP URL working and send it to the hostname.
+165.22.93.12 {
+	tls {
+		issuer acme {
+			profile shortlived
+			disable_tlsalpn_challenge
+		}
+	}
+	redir https://platform.useshortlisted.app{uri} permanent
+}
+
+:8080 {
+	redir https://platform.useshortlisted.app{uri} permanent
+}

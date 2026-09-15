@@ -1,11 +1,16 @@
-# ApplicantCompanion
+# Serah
 
-**AI-powered personal job application intelligence platform** — give the system your
-career history once; for every new vacancy it parses the JD, researches the
-organization, matches your evidence, honestly scores your fit, and generates a
-targeted CV and cover letter **without inventing anything**.
+**Job-seeker workspace from Shortlisted** — give the system your career history
+once; for every new vacancy it parses the JD, researches the organization,
+matches your evidence, honestly scores your fit, and generates a targeted CV
+and cover letter **without inventing anything**.
 
 Built to the specification in [`AppSpecs.md`](./AppSpecs.md).
+
+Each account has its own career knowledge, jobs, and applications. The first
+user is the workspace admin; they can create further accounts from **Admin →
+Users**. Sign-in is email/password and, optionally, **Google**. Resume and
+cover-letter themes live in **Settings** (avatar menu), not as separate pages.
 
 ## Core principles (enforced in code)
 
@@ -33,7 +38,7 @@ Built to the specification in [`AppSpecs.md`](./AppSpecs.md).
 ### Option A — Docker (full stack: PostgreSQL + Qdrant + MinIO)
 
 ```bash
-cp .env.example .env          # adjust secrets
+cp .env.example .env          # adjust secrets; set GOOGLE_CLIENT_ID to enable Google Sign-In
 docker compose up --build
 # Frontend: http://localhost:5173   Backend API: http://localhost:8000/api/docs
 ```
@@ -72,6 +77,28 @@ cd ../frontend && npm install && npm run dev
 
 Seeded login: **demo@example.com / demo-password-123** (override with
 `SEED_USER_EMAIL` / `SEED_USER_PASSWORD`; demo career data via `SEED_DEMO_DATA=false`).
+That seed user is the workspace admin.
+
+## Accounts and Google Sign-In
+
+- **First user** — `POST /api/auth/register` is open only while the database has
+  no users; that account is admin. After that, email registration returns 403.
+- **Later users** — an admin creates password accounts in the UI (`/admin/users`)
+  or anyone with Google can sign in (new Google users are non-admins). Matching
+  emails are linked so the same person can use both methods.
+- **Google** — set `GOOGLE_CLIENT_ID` in `.env` to a [Google Identity Services](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)
+  **Web application** client ID. In Google Cloud Console → Credentials, add these
+  **Authorized JavaScript origins** (no trailing slash): `http://localhost:5173`
+  and `http://127.0.0.1:5173`. Redirect URIs are not required for this ID-token
+  flow. Leave the env var empty to hide the button. The backend verifies the ID
+  token; no client secret is required.
+- **Isolation** — every query is scoped by `user_id`. Admins manage **accounts
+  only**; they cannot open another user’s jobs or career data.
+- **UI** — Settings, AI / model config, and Admin are in the avatar menu
+  (top-right). The sidebar is Dashboard, Career, Jobs, Applications, Documents.
+
+Default CV and cover-letter themes are chosen on the Settings page and used when
+generating new documents (you can still switch a document’s theme in the editor).
 
 ## Using real LLMs
 
@@ -98,7 +125,7 @@ execution log.
 
 ```powershell
 cd backend
-.venv\Scripts\python -m pytest tests/ -q    # Windows (43 tests)
+.venv\Scripts\python -m pytest tests/ -q    # Windows
 # .venv/bin/python -m pytest tests/ -q      # Linux/macOS
 ```
 

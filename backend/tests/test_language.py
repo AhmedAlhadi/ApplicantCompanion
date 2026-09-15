@@ -75,6 +75,21 @@ def test_settings_language_round_trip(client, auth_headers):
         })
 
 
+def test_default_document_templates_round_trip(client, auth_headers):
+    resp = client.get("/api/settings", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["default_cv_template"]
+    assert resp.json()["default_cover_letter_template"]
+    put = client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={"default_cv_template": "consulting", "default_cover_letter_template": "modern-professional"},
+    )
+    assert put.status_code == 200, put.text
+    assert put.json()["default_cv_template"] == "consulting"
+    assert put.json()["default_cover_letter_template"] == "modern-professional"
+
+
 def test_settings_rejects_unknown_language(client, auth_headers):
     resp = client.put("/api/settings", headers=auth_headers, json={"ui_language": "fr"})
     assert resp.status_code == 422

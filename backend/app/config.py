@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "ApplicantCompanion"
+    app_name: str = "Serah"
     app_env: str = "development"
     secret_key: str = "dev-only-insecure-secret-change-me"
     access_token_expire_minutes: int = 60 * 12
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_http_referer: str = "http://localhost:5173"
-    openrouter_app_title: str = "ApplicantCompanion"
+    openrouter_app_title: str = "Serah"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     gemini_api_key: str = ""
@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 120
 
     frontend_origin: str = "http://localhost:5173"
+
+    # Google Sign-In (GIS ID-token). Empty disables the button and /api/auth/google.
+    google_client_id: str = ""
 
     @property
     def allowed_extensions(self) -> set[str]:

@@ -13,8 +13,7 @@ import type {
   User,
   WorkflowRun,
 } from "../api/types";
-import { ErrorBox, ScoreRing, Spinner, useWorkflow } from "../components/ui";
-import { LanguagePickers } from "../components/LanguageSettings";
+import { Brand, ErrorBox, ScoreRing, Spinner, useWorkflow } from "../components/ui";
 import { useT } from "../lib/i18n";
 
 type Step = "welcome" | "career" | "profile" | "job" | "working" | "done";
@@ -169,9 +168,7 @@ export default function Onboarding({ user }: { user: User }) {
       return;
     }
     generationHandled.current = false;
-    const accepted = await api.post<{ workflow_run_id: string }>(`/api/applications/${resolvedAppId}/generate-all`, {
-      template_key: "minimal-ats",
-    });
+    const accepted = await api.post<{ workflow_run_id: string }>(`/api/applications/${resolvedAppId}/generate-all`, {});
     setGenerateRunId(accepted.workflow_run_id);
     setPipelineHint("Generating your strategy, resume, and cover letter…");
   };
@@ -279,9 +276,7 @@ export default function Onboarding({ user }: { user: User }) {
 
   return (
     <div className="onboard-wrap">
-      <div className="brand">
-        Applicant<span>Companion</span>
-      </div>
+      <Brand />
       <div className="onboard-steps" aria-label="Onboarding progress">
         {STEP_KEYS.map((key, i) => (
           <div
@@ -365,7 +360,6 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
     <div className="panel">
       <h1 className="page-title"><Sparkles className="page-title-icon" aria-hidden /> {t("onboarding.welcomeTitle")}</h1>
       <p className="page-sub">{t("onboarding.welcomeSub")}</p>
-      <LanguagePickers persist />
       <ol className="onboard-list">
         <li>{t("onboarding.welcome1")}</li>
         <li>{t("onboarding.welcome2")}</li>

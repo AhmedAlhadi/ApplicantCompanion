@@ -26,6 +26,29 @@ class TokenResponse(BaseModel):
     user: dict
 
 
+class GoogleAuthRequest(BaseModel):
+    id_token: str
+
+
+class AuthConfigResponse(BaseModel):
+    google_client_id: str
+    registration_open: bool
+
+
+class AdminUserCreate(BaseModel):
+    email: str
+    password: str = Field(min_length=8)
+    full_name: str = ""
+    is_admin: bool = False
+
+
+class AdminUserUpdate(BaseModel):
+    full_name: str | None = None
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    password: str | None = Field(default=None, min_length=8)
+
+
 # ── Career knowledge ─────────────────────────────────────────────────────────
 
 
@@ -233,6 +256,8 @@ class SettingsUpdate(BaseModel):
     model_routing: dict[str, str] | None = None
     ui_language: Literal["ar", "en"] | None = None
     content_language: Literal["ar", "en"] | None = None
+    default_cv_template: str | None = None
+    default_cover_letter_template: str | None = None
 
 
 class ModelTestRequest(BaseModel):

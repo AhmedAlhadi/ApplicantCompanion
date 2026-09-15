@@ -1,0 +1,21 @@
+# Overlay for the public droplet. Local `docker compose up` is unchanged (port 8080).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.hosted.yml up --pull missing --build -d
+#
+# FR-SLICE-008, NFR-SEC-002.
+
+services:
+  caddy:
+    ports: !override
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+    volumes: !override
+      - ./Caddyfile.hosted:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

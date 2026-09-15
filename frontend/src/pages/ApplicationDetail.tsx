@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FileText, Files, Mail, RefreshCw, Sparkles } from "lucide-react";
 import { api, ApiError } from "../api/client";
-import type { AppDocument, Application, JobScore, Strategy, Template } from "../api/types";
+import type { AppDocument, Application, JobScore, Strategy, Template, UserSettings } from "../api/types";
 import { Empty, ErrorBox, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { useT } from "../lib/i18n";
@@ -34,11 +34,16 @@ export default function ApplicationDetail() {
   const strategy = useApi<Strategy>(() => api.get(`/api/applications/${id}/strategy`), [id]);
   const docs = useApi<AppDocument[]>(() => api.get(`/api/applications/${id}/documents`), [id]);
   const templates = useApi<Template[]>(() => api.get("/api/templates"));
+  const settings = useApi<UserSettings>(() => api.get("/api/settings"));
   const [templateKey, setTemplateKey] = useState("minimal-ats");
   const [busy, setBusy] = useState<string | null>(null);
   const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
   const [gate, setGate] = useState<ThresholdGate | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (settings.data?.default_cv_template) setTemplateKey(settings.data.default_cv_template);
+  }, [settings.data]);
 
   const a = app.data;
   const score = useApi<JobScore | null>(

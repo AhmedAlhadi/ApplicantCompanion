@@ -39,7 +39,7 @@ class DuckDuckGoSearchProvider(SearchProvider):
                 self.URL,
                 data={"q": query},
                 timeout=get_settings().research_timeout_seconds,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; ApplicantCompanion/1.0)"},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Serah/1.0)"},
             )
             resp.raise_for_status()
         except httpx.HTTPError as exc:

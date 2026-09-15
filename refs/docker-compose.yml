@@ -1,0 +1,132 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    pull_policy: missing
+    environment:
+      POSTGRES_USER: shortlisted
+      POSTGRES_PASSWORD: shortlisted
+      POSTGRES_DB: shortlisted
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortlisted"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    pull_policy: missing
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    pull_policy: missing
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    pull_policy: missing
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: staging
+      DATABASE_URL: postgresql+asyncpg://shortlisted:shortlisted@postgres:5432/shortlisted
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_BUCKET: shortlisted
+      PROMPTS_ROOT: /app/prompts
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_SCORE_MODEL: ${LLM_SCORE_MODEL:-openrouter/google/gemini-2.5-flash}
+      LLM_VISION_MODEL: ${LLM_VISION_MODEL:-openrouter/google/gemini-2.5-flash}
+      LLM_ZERO_RETENTION: ${LLM_ZERO_RETENTION:-true}
+      LLM_BUDGET_USD: ${LLM_BUDGET_USD:-0.50}
+      LLM_DOCUMENT_BUDGET_USD: ${LLM_DOCUMENT_BUDGET_USD:-0.20}
+      SYNC_PIPELINE: "false"
+      SEED_EMAIL: ${SEED_EMAIL:-admin@useshortlisted.app}
+      SEED_PASSWORD: ${SEED_PASSWORD:-changeme}
+      DEMO_EMAIL: ${DEMO_EMAIL:-demo@useshortlisted.app}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-changeme}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://platform.useshortlisted.app,https://165.22.93.12}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    pull_policy: missing
+    command: celery -A shortlisted.platform.queue.celery_app worker --beat --loglevel=INFO --concurrency=4
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: staging
+      DATABASE_URL: postgresql+asyncpg://shortlisted:shortlisted@postgres:5432/shortlisted
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_BUCKET: shortlisted
+      PROMPTS_ROOT: /app/prompts
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_SCORE_MODEL: ${LLM_SCORE_MODEL:-openrouter/google/gemini-2.5-flash}
+      LLM_VISION_MODEL: ${LLM_VISION_MODEL:-openrouter/google/gemini-2.5-flash}
+      LLM_ZERO_RETENTION: ${LLM_ZERO_RETENTION:-true}
+      LLM_BUDGET_USD: ${LLM_BUDGET_USD:-0.50}
+      LLM_DOCUMENT_BUDGET_USD: ${LLM_DOCUMENT_BUDGET_USD:-0.20}
+      SYNC_PIPELINE: "false"
+    depends_on:
+      - api
+      - redis
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_APP_URL:-https://platform.useshortlisted.app}
+    pull_policy: missing
+    environment:
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    pull_policy: missing
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - frontend
