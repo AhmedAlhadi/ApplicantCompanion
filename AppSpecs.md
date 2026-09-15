@@ -35,6 +35,7 @@ The application maintains a persistent Career Knowledge Base containing:
 - Skills
 - Technical skills
 - Domain expertise
+- Industry, process, and cross-functional knowledge acquired through work
 - Education
 - Certifications
 - Languages

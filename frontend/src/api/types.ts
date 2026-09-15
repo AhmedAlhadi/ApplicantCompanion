@@ -86,7 +86,7 @@ export interface RequirementMatchData {
 }
 
 export interface QualificationPredicate {
-  kind: "degree_level" | "relevant_experience" | "education_field" | "certification" | "language" | "skill" | "other";
+  kind: "degree_level" | "relevant_experience" | "education_field" | "certification" | "language" | "skill" | "domain_expertise" | "other";
   value?: string;
   minimum_level?: string;
   minimum_years?: number | null;
@@ -488,4 +488,33 @@ export interface CareerCertification {
   issuer: string;
   issue_date: string | null;
   verification_status: string;
+}
+
+export interface KnowledgeContext {
+  id: string;
+  knowledge_id: string;
+  experience_id: string | null;
+  project_id: string | null;
+  achievement_id: string | null;
+  education_id: string | null;
+  acquisition_mode: string;
+  how_acquired: string;
+  how_applied: string;
+  verification_status: string;
+  confidence: number;
+}
+
+export interface ProfessionalKnowledge {
+  id: string;
+  name: string;
+  canonical_name: string;
+  kind: string;
+  summary: string;
+  depth: string;
+  years_experience: number | null;
+  synonyms: string[];
+  evidence_count: number;
+  verification_status: string;
+  confidence: number;
+  contexts: KnowledgeContext[];
 }

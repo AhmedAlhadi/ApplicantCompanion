@@ -8,6 +8,7 @@ import type {
   CareerProfile,
   CareerProject,
   CareerSkill,
+  ProfessionalKnowledge,
 } from "../api/types";
 import { CareerEvolution } from "./CareerEvolution";
 import { Empty, useApi } from "./ui";
@@ -20,9 +21,10 @@ export type CareerTabKey =
   | "achievements"
   | "skills"
   | "education"
-  | "certifications";
+  | "certifications"
+  | "knowledge";
 
-type NodeType = "profile" | "experience" | "projects" | "skills" | "technology";
+type NodeType = "profile" | "experience" | "projects" | "skills" | "technology" | "knowledge";
 
 type GraphNode = {
   id: string;
@@ -49,6 +51,7 @@ type CareerBundle = {
   skills: CareerSkill[];
   education: CareerEducation[];
   certifications: CareerCertification[];
+  knowledge: ProfessionalKnowledge[];
 };
 
 const TYPE_COLOR: Record<NodeType, string> = {
@@ -57,6 +60,7 @@ const TYPE_COLOR: Record<NodeType, string> = {
   projects: "#37c2a0",
   skills: "#a78bfa",
   technology: "#f0a04b",
+  knowledge: "#e08a6a",
 };
 
 function typeLabel(type: NodeType) {
@@ -66,6 +70,7 @@ function typeLabel(type: NodeType) {
     projects: "map.project",
     skills: "map.skill",
     technology: "map.technologies",
+    knowledge: "map.knowledge",
   };
   return t(keys[type]);
 }
@@ -76,6 +81,7 @@ function filterLabel(type: Exclude<NodeType, "profile">) {
     projects: "map.projects",
     skills: "map.skills",
     technology: "map.technologies",
+    knowledge: "map.knowledge",
   };
   return t(keys[type]);
 }
@@ -85,6 +91,7 @@ const DEFAULT_VISIBLE: Record<Exclude<NodeType, "profile">, boolean> = {
   projects: true,
   skills: true,
   technology: true,
+  knowledge: true,
 };
 
 const CARD: Record<NodeType, { w: number; h: number }> = {
@@ -93,6 +100,7 @@ const CARD: Record<NodeType, { w: number; h: number }> = {
   projects: { w: 156, h: 50 },
   skills: { w: 150, h: 50 },
   technology: { w: 108, h: 34 },
+  knowledge: { w: 150, h: 46 },
 };
 
 const LAYOUT = { width: 1120, height: 620 };
@@ -244,6 +252,28 @@ function buildGraph(bundle: CareerBundle, profile: CareerProfile | null): { node
     }
   }
 
+  const knowledge = (bundle.knowledge || []).slice(0, 8);
+  for (const item of knowledge) {
+    const id = `knowledge:${item.id}`;
+    addNode(nodes, seen, {
+      id,
+      type: "knowledge",
+      label: item.canonical_name || item.name,
+      sub: [item.kind, item.depth].filter(Boolean).join(" · "),
+      status: item.verification_status || "",
+      ...CARD.knowledge,
+    });
+    addEdge(edges, "profile:self", id, "related");
+    for (const ctx of item.contexts || []) {
+      if (ctx.experience_id && seen.has(`experience:${ctx.experience_id}`)) {
+        addEdge(edges, id, `experience:${ctx.experience_id}`, "strong");
+      }
+      if (ctx.project_id && seen.has(`project:${ctx.project_id}`)) {
+        addEdge(edges, id, `project:${ctx.project_id}`, "related");
+      }
+    }
+  }
+
   return { nodes, edges };
 }
 
@@ -261,6 +291,7 @@ function layoutHubSpoke(nodes: GraphNode[]) {
   const projects = nodes.filter((n) => n.type === "projects");
   const skills = nodes.filter((n) => n.type === "skills");
   const techs = nodes.filter((n) => n.type === "technology");
+  const knowledge = nodes.filter((n) => n.type === "knowledge");
 
   spread(roles.length, 150, height - 150).forEach((y, i) => {
     roles[i].x = 128;
@@ -274,9 +305,13 @@ function layoutHubSpoke(nodes: GraphNode[]) {
     skills[i].x = width - 128;
     skills[i].y = y;
   });
-  spread(techs.length, 250, width - 250).forEach((x, i) => {
+  spread(techs.length, 180, width / 2 - 20).forEach((x, i) => {
     techs[i].x = x;
     techs[i].y = height - 70;
+  });
+  spread(knowledge.length, width / 2 + 20, width - 180).forEach((x, i) => {
+    knowledge[i].x = x;
+    knowledge[i].y = height - 70;
   });
 }
 
@@ -306,20 +341,22 @@ function fitTransform(nodes: GraphNode[], width: number, height: number) {
 function tabFor(type: NodeType): CareerTabKey {
   if (type === "profile") return "profile";
   if (type === "technology") return "skills";
+  if (type === "knowledge") return "knowledge";
   return type;
 }
 
 export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) => void }) {
   const bundle = useApi<CareerBundle>(async () => {
-    const [experiences, projects, achievements, skills, education, certifications] = await Promise.all([
+    const [experiences, projects, achievements, skills, education, certifications, knowledge] = await Promise.all([
       api.get<CareerExperience[]>("/api/career/experiences"),
       api.get<CareerProject[]>("/api/career/projects"),
       api.get<CareerAchievement[]>("/api/career/achievements"),
       api.get<CareerSkill[]>("/api/career/skills"),
       api.get<CareerEducation[]>("/api/career/education"),
       api.get<CareerCertification[]>("/api/career/certifications"),
+      api.get<ProfessionalKnowledge[]>("/api/career/knowledge"),
     ]);
-    return { experiences, projects, achievements, skills, education, certifications };
+    return { experiences, projects, achievements, skills, education, certifications, knowledge };
   });
   const profile = useApi<CareerProfile>(() => api.get("/api/career/profile"));
 
@@ -344,7 +381,8 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
         ...b.experiences.flatMap((e) => e.technologies || []),
         ...b.projects.flatMap((p) => p.technologies || []),
       ]).size,
-      total: b.experiences.length + b.projects.length + b.skills.length,
+      knowledge: b.knowledge.length,
+      total: b.experiences.length + b.projects.length + b.skills.length + b.knowledge.length,
     };
   }, [bundle.data]);
 
@@ -456,6 +494,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
         <div className="stat-card"><div className="stat-value">{stats.experiences}</div><div className="stat-label">Roles</div></div>
         <div className="stat-card"><div className="stat-value">{stats.projects}</div><div className="stat-label">Projects</div></div>
         <div className="stat-card"><div className="stat-value">{stats.skills}</div><div className="stat-label">Skills</div></div>
+        <div className="stat-card"><div className="stat-value">{stats.knowledge}</div><div className="stat-label">{t("map.knowledge")}</div></div>
         <div className="stat-card"><div className="stat-value">{stats.techs}</div><div className="stat-label">Technologies</div></div>
       </div>
 

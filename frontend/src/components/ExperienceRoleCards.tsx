@@ -22,6 +22,7 @@ export function ExperienceRoleCard({
   experience,
   projects,
   achievements,
+  knowledge = [],
   evidenceOpen,
   evidencePanel,
   onToggleEvidence,
@@ -32,6 +33,7 @@ export function ExperienceRoleCard({
   experience: CareerExperience;
   projects: CareerProject[];
   achievements: CareerAchievement[];
+  knowledge?: { canonical_name?: string; name?: string; kind?: string; depth?: string }[];
   evidenceOpen: boolean;
   evidencePanel: ReactNode;
   onToggleEvidence: () => void;
@@ -71,7 +73,11 @@ export function ExperienceRoleCard({
         </div>
       </div>
       {experience.description && <p className="role-desc">{experience.description}</p>}
-      <Pills items={[...(experience.domains || []), ...(experience.technologies || [])]} />
+      <Pills items={[
+        ...knowledge.map((item) => item.canonical_name || item.name || "").filter(Boolean),
+        ...(experience.domains || []),
+        ...(experience.technologies || []),
+      ]} />
       {evidenceOpen && evidencePanel}
 
       {!!projects.length && (

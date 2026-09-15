@@ -36,6 +36,7 @@ from ..models import (
     Person,
     RequirementMatch,
     Language,
+    ProfessionalKnowledge,
     Skill,
     User,
     WorkflowRun,
@@ -412,6 +413,22 @@ class Orchestrator:
                 for item in self.db.query(Skill).filter(
                     Skill.user_id == self.user.id,
                     Skill.is_deleted == False,  # noqa: E712
+                )
+            ],
+            "professional_knowledge": [
+                {
+                    "entity_type": "professional_knowledge",
+                    "entity_id": item.id,
+                    "text": " ".join(filter(None, [item.canonical_name, item.kind, item.depth, item.summary])),
+                    "name": item.canonical_name,
+                    "kind": item.kind,
+                    "depth": item.depth,
+                    "years_experience": item.years_experience,
+                    "verification_status": item.verification_status,
+                }
+                for item in self.db.query(ProfessionalKnowledge).filter(
+                    ProfessionalKnowledge.user_id == self.user.id,
+                    ProfessionalKnowledge.is_deleted == False,  # noqa: E712
                 )
             ],
         }

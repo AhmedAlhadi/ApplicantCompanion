@@ -8,6 +8,7 @@ import type {
   CareerProject,
   IngestResult,
   PendingIngestion,
+  ProfessionalKnowledge,
   ReconciliationAction,
   ReconciliationProposal,
 } from "../api/types";
@@ -306,6 +307,10 @@ function EntityTab({ config }: { config: EntityConfig }) {
     () => (isExperience ? api.get("/api/career/achievements") : Promise.resolve([])),
     [isExperience],
   );
+  const knowledge = useApi<ProfessionalKnowledge[]>(
+    () => (isExperience ? api.get("/api/career/knowledge") : Promise.resolve([])),
+    [isExperience],
+  );
   const education = useApi<any[]>(
     () => (config.key === "achievements" ? api.get("/api/career/education") : Promise.resolve([])),
     [config.key],
@@ -364,6 +369,9 @@ function EntityTab({ config }: { config: EntityConfig }) {
             experience={row}
             projects={(projects.data || []).filter((p) => p.experience_id === row.id)}
             achievements={nestedAchievements.data || []}
+            knowledge={(knowledge.data || []).filter((item) =>
+              (item.contexts || []).some((ctx) => ctx.experience_id === row.id),
+            )}
             evidenceOpen={evidenceFor === row.id}
             evidencePanel={<EvidencePanel entityType="experience" entityId={row.id} />}
             onToggleEvidence={() => setEvidenceFor(evidenceFor === row.id ? null : row.id)}
@@ -858,6 +866,167 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
   );
 }
 
+function KnowledgeTab() {
+  const { t } = useT();
+  const { data, reload, loading } = useApi<ProfessionalKnowledge[]>(() => api.get("/api/career/knowledge"));
+  const experiences = useApi<CareerExperience[]>(() => api.get("/api/career/experiences"));
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<ProfessionalKnowledge | null>(null);
+  const [form, setForm] = useState({
+    name: "",
+    kind: "domain",
+    depth: "applied",
+    summary: "",
+    years_experience: "",
+    experience_id: "",
+    how_acquired: "",
+    how_applied: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const kinds = ["industry", "domain", "business_function", "process", "methodology", "regulation", "product_service", "customer_stakeholder", "terminology"];
+  const depths = ["awareness", "applied", "practiced", "expert"];
+
+  const startEdit = (row?: ProfessionalKnowledge) => {
+    const ctx = row?.contexts?.[0];
+    setForm({
+      name: row?.name || row?.canonical_name || "",
+      kind: row?.kind || "domain",
+      depth: row?.depth || "applied",
+      summary: row?.summary || "",
+      years_experience: row?.years_experience != null ? String(row.years_experience) : "",
+      experience_id: ctx?.experience_id || "",
+      how_acquired: ctx?.how_acquired || "",
+      how_applied: ctx?.how_applied || "",
+    });
+    setEditing(row || null);
+    setAdding(!row);
+    setError(null);
+  };
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const payload = {
+      name: form.name,
+      kind: form.kind,
+      depth: form.depth,
+      summary: form.summary,
+      years_experience: form.years_experience === "" ? null : Number(form.years_experience),
+      contexts: form.experience_id
+        ? [{
+            experience_id: form.experience_id,
+            how_acquired: form.how_acquired,
+            how_applied: form.how_applied,
+            acquisition_mode: "acquired_through_role",
+          }]
+        : [],
+    };
+    try {
+      if (editing?.id) await api.put(`/api/career/knowledge/${editing.id}`, payload);
+      else await api.post("/api/career/knowledge", payload);
+      setAdding(false);
+      setEditing(null);
+      reload();
+    } catch (err: any) {
+      setError(typeof err.detail === "string" ? err.detail : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this entry?")) return;
+    await api.delete(`/api/career/knowledge/${id}`);
+    reload();
+  };
+
+  const roleLabel = (id: string | null) => {
+    if (!id) return "";
+    const exp = (experiences.data || []).find((row) => row.id === id);
+    return exp ? `${exp.job_title} — ${exp.organization}` : "";
+  };
+
+  return (
+    <>
+      <div className="row spread mb">
+        <p className="muted" style={{ margin: 0 }}>{t("career.knowledgeHint")}</p>
+        <button className="primary sm" onClick={() => startEdit()}><Plus aria-hidden /> Add</button>
+      </div>
+      {(adding || editing) && (
+        <form className="panel" onSubmit={save}>
+          <h3>{editing ? "Edit" : "Add"} knowledge</h3>
+          <label>{t("career.fields.skill").replace("Skill", "Knowledge")}</label>
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          <div className="form-row">
+            <div>
+              <label>{t("career.fields.kind")}</label>
+              <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+                {kinds.map((kind) => (
+                  <option key={kind} value={kind}>{t(`career.knowledgeKinds.${kind}`)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>{t("career.fields.depth")}</label>
+              <select value={form.depth} onChange={(e) => setForm({ ...form, depth: e.target.value })}>
+                {depths.map((depth) => (
+                  <option key={depth} value={depth}>{t(`career.knowledgeDepths.${depth}`)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <label>{t("career.fields.summary")}</label>
+          <textarea value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={3} />
+          <label>{t("career.linkedRole")}</label>
+          <select value={form.experience_id} onChange={(e) => setForm({ ...form, experience_id: e.target.value })}>
+            <option value="">{t("career.noneOption")}</option>
+            {(experiences.data || []).map((exp) => (
+              <option key={exp.id} value={exp.id}>{exp.job_title} — {exp.organization}</option>
+            ))}
+          </select>
+          <label>{t("career.fields.how_applied")}</label>
+          <textarea value={form.how_applied} onChange={(e) => setForm({ ...form, how_applied: e.target.value })} rows={2} />
+          <ErrorBox error={error} />
+          <div className="row mt">
+            <button className="primary" disabled={busy}>Save</button>
+            <button type="button" className="ghost" onClick={() => { setAdding(false); setEditing(null); }}>Cancel</button>
+          </div>
+        </form>
+      )}
+      {loading && <p className="muted">Loading…</p>}
+      {!loading && !data?.length && <Empty icon={Inbox}>Nothing here yet — add knowledge from a role or ingest a CV.</Empty>}
+      {data?.map((row) => (
+        <div className="list-item" key={row.id}>
+          <div className="row spread">
+            <div>
+              <div className="title">{row.canonical_name || row.name}</div>
+              <div className="meta">
+                {[t(`career.knowledgeKinds.${row.kind}`), t(`career.knowledgeDepths.${row.depth}`), roleLabel(row.contexts?.[0]?.experience_id || null)]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+              {row.summary && <p className="small muted">{row.summary}</p>}
+            </div>
+            <div className="row">
+              {row.verification_status && <span className={`badge ${row.verification_status}`}>{row.verification_status.replace("_", " ")}</span>}
+              {row.verification_status !== "verified" && (
+                <button className="sm" onClick={async () => { await api.post(`/api/career/knowledge/${row.id}/verify?status_value=verified`); reload(); }}>
+                  <Check aria-hidden /> Mark verified
+                </button>
+              )}
+              <button className="sm" onClick={() => startEdit(row)}><Pencil aria-hidden /> Edit</button>
+              <button className="sm danger" onClick={() => remove(row.id)}><Trash2 aria-hidden /> Delete</button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function PreviousApplicationsTab() {
   const apps = useApi<any[]>(() => api.get("/api/applications"));
   return (
@@ -910,6 +1079,7 @@ export default function CareerKnowledge() {
     { key: "overview", label: t("career.overview") },
     { key: "profile", label: t("career.profile") },
     ...ENTITIES.map((e) => ({ key: e.key, label: t(`career.entities.${e.key}`) })),
+    { key: "knowledge", label: t("career.entities.knowledge") },
     {
       key: "pending",
       label: pendingCount.data?.length
@@ -937,6 +1107,7 @@ export default function CareerKnowledge() {
       </div>
       {tab === "overview" && <CareerOverview onOpenTab={(key: CareerTabKey) => setTab(key)} />}
       {tab === "profile" && <ProfileTab />}
+      {tab === "knowledge" && <KnowledgeTab />}
       {ENTITIES.map((e) => tab === e.key && <EntityTab key={e.key} config={e} />)}
       {tab === "pending" && (
         <PendingIngestionsTab

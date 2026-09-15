@@ -15,6 +15,7 @@ from ..models import (
     Education,
     Experience,
     Language,
+    ProfessionalKnowledge,
     Project,
     Publication,
     Skill,
@@ -127,6 +128,12 @@ def full_knowledge_base(db: Session, user_id: str) -> dict:
             to_dict(n)
             for n in db.query(CareerNarrative).filter(
                 CareerNarrative.user_id == user_id, CareerNarrative.is_deleted == False  # noqa: E712
+            )
+        ],
+        "professional_knowledge": [
+            to_dict(k)
+            for k in db.query(ProfessionalKnowledge).filter(
+                ProfessionalKnowledge.user_id == user_id, ProfessionalKnowledge.is_deleted == False  # noqa: E712
             )
         ],
     }

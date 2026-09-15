@@ -16,7 +16,9 @@ from .models import (
     Certification,
     Education,
     Experience,
+    KnowledgeContext,
     Language,
+    ProfessionalKnowledge,
     Skill,
     Template,
     User,
@@ -51,6 +53,10 @@ DEMO_EXPERIENCES = [
         ],
         "technologies": ["Power BI", "Python", "PostgreSQL", "Azure", "SharePoint"],
         "domains": ["digital transformation", "development", "public sector"],
+        "knowledge": [
+            {"name": "humanitarian programme operations", "kind": "industry", "depth": "practiced"},
+            {"name": "results-based management", "kind": "methodology", "depth": "applied"},
+        ],
         "leadership": ["Managed a cross-functional team of 6", "Chaired the regional data governance working group"],
         "stakeholders": ["Country Directors", "Government counterparts", "UN agencies"],
         "verification_status": "verified",
@@ -142,12 +148,49 @@ def seed_if_empty() -> None:
 
         if os.environ.get("SEED_DEMO_DATA", "true").lower() == "true":
             for exp in DEMO_EXPERIENCES:
-                achievements = exp.pop("achievements")
-                row = Experience(user_id=user.id, **exp)
+                payload = dict(exp)
+                achievements = payload.pop("achievements")
+                knowledge_items = payload.pop("knowledge", [])
+                row = Experience(user_id=user.id, **payload)
                 db.add(row)
                 db.flush()
                 for ach in achievements:
                     db.add(Achievement(user_id=user.id, experience_id=row.id, verification_status="verified", confidence=0.95, **ach))
+                for item in knowledge_items + [{"name": name, "kind": "domain", "depth": "applied"} for name in payload.get("domains") or []]:
+                    name = item["name"]
+                    knowledge = (
+                        db.query(ProfessionalKnowledge)
+                        .filter(
+                            ProfessionalKnowledge.user_id == user.id,
+                            ProfessionalKnowledge.canonical_name == name,
+                            ProfessionalKnowledge.is_deleted == False,  # noqa: E712
+                        )
+                        .first()
+                    )
+                    if knowledge is None:
+                        knowledge = ProfessionalKnowledge(
+                            user_id=user.id,
+                            name=name,
+                            canonical_name=name,
+                            kind=item.get("kind", "domain"),
+                            depth=item.get("depth", "applied"),
+                            summary=item.get("summary", ""),
+                            verification_status="verified",
+                            confidence=0.9,
+                            evidence_count=1,
+                        )
+                        db.add(knowledge)
+                        db.flush()
+                    db.add(
+                        KnowledgeContext(
+                            user_id=user.id,
+                            knowledge_id=knowledge.id,
+                            experience_id=row.id,
+                            acquisition_mode="acquired_through_role",
+                            verification_status="verified",
+                            confidence=0.9,
+                        )
+                    )
 
             for name, category, synonyms in DEMO_SKILLS:
                 db.add(Skill(user_id=user.id, name=name, canonical_name=name, category=category, synonyms=synonyms, verification_status="verified", confidence=0.9, evidence_count=2))

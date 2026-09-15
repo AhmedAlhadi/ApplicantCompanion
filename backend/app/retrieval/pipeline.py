@@ -17,7 +17,9 @@ from ..models import (
     Certification,
     Education,
     Experience,
+    KnowledgeContext,
     Language,
+    ProfessionalKnowledge,
     Project,
     Skill,
 )
@@ -27,7 +29,7 @@ from .vector_store import VectorRecord, get_vector_store
 # Entity types that are indexed for semantic retrieval (§3 vector database)
 INDEXED_ENTITY_TYPES = (
     "experience", "achievement", "project", "skill", "education",
-    "certification", "language", "narrative",
+    "certification", "language", "narrative", "professional_knowledge",
 )
 
 
@@ -64,6 +66,10 @@ def _entity_text(entity_type: str, obj) -> str:
         return "\n".join(p for p in parts if p)
     if isinstance(obj, Skill):
         return " ".join([obj.canonical_name, obj.category] + (obj.synonyms or []))
+    if isinstance(obj, ProfessionalKnowledge):
+        parts = [obj.canonical_name, obj.kind, obj.depth, obj.summary]
+        parts += obj.synonyms or []
+        return "\n".join(p for p in parts if p)
     if isinstance(obj, Education):
         return "\n".join(p for p in [obj.degree, obj.field_of_study, obj.institution, obj.description] if p)
     if isinstance(obj, Certification):
@@ -80,6 +86,7 @@ _MODEL_FOR = {
     "achievement": Achievement,
     "project": Project,
     "skill": Skill,
+    "professional_knowledge": ProfessionalKnowledge,
     "education": Education,
     "certification": Certification,
     "language": Language,
@@ -98,6 +105,13 @@ def _structured_metadata(entity_type: str, obj) -> dict:
         return {"language": obj.language, "proficiency": obj.proficiency, "is_native": obj.is_native}
     if entity_type == "skill":
         return {"name": obj.canonical_name, "years_experience": obj.years_experience}
+    if entity_type == "professional_knowledge":
+        return {
+            "name": obj.canonical_name,
+            "kind": obj.kind,
+            "depth": obj.depth,
+            "years_experience": obj.years_experience,
+        }
     return {}
 
 
@@ -109,6 +123,19 @@ def index_entity(db: Session, entity_type: str, entity_id: str) -> None:
         get_vector_store().delete([f"{entity_type}:{entity_id}"])
         return
     text = _entity_text(entity_type, obj)
+    if entity_type == "professional_knowledge":
+        extras = (
+            db.query(KnowledgeContext)
+            .filter(
+                KnowledgeContext.knowledge_id == entity_id,
+                KnowledgeContext.is_deleted == False,  # noqa: E712
+            )
+            .all()
+        )
+        for ctx in extras:
+            text = "\n".join(
+                part for part in [text, ctx.how_acquired, ctx.how_applied, ctx.acquisition_mode] if part
+            )
     vector = get_embedding_provider().embed([text])[0]
     get_vector_store().upsert(
         [
@@ -186,6 +213,19 @@ def retrieve_evidence(
         if obj is None or getattr(obj, "is_deleted", False):
             continue
         text = _entity_text(entity_type, obj)
+        if entity_type == "professional_knowledge":
+            extras = (
+                db.query(KnowledgeContext)
+                .filter(
+                    KnowledgeContext.knowledge_id == entity_id,
+                    KnowledgeContext.is_deleted == False,  # noqa: E712
+                )
+                .all()
+            )
+            for ctx in extras:
+                text = "\n".join(
+                    part for part in [text, ctx.how_acquired, ctx.how_applied] if part
+                )
         kw = _keyword_score(query_tokens, text)
         combined = semantic_weight * hit.score + (1 - semantic_weight) * kw
         items.append(

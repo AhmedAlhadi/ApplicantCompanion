@@ -25,11 +25,18 @@ from ..models import (
     Experience,
     Language,
     PendingIngestion,
+    ProfessionalKnowledge,
     Project,
     Skill,
     User,
 )
 from ..retrieval.pipeline import index_entity
+from .knowledge import (
+    attach_context,
+    knowledge_items_from_extraction,
+    sync_experience_domains,
+    upsert_knowledge,
+)
 from .storage import get_object_store
 
 logger = logging.getLogger(__name__)
@@ -167,6 +174,7 @@ class IngestionService:
             "education": 0,
             "certifications": 0,
             "languages": 0,
+            "professional_knowledge": 0,
         }
 
         # Skills / education / certs / languages are still applied immediately
@@ -218,6 +226,26 @@ class IngestionService:
                 auto_applied["skills"] += 1
                 self._provenance(skill_row.id, "skill", raw.name, document, "Skills")
                 index_entity(self.db, "skill", skill_row.id)
+
+        knowledge_items = knowledge_items_from_extraction(result)
+        pending_knowledge: list[dict] = []
+        for item in knowledge_items:
+            name = (item.get("name") or "").strip()
+            if not name:
+                continue
+            row = upsert_knowledge(self.db, self.user, item, document=document)
+            auto_applied["professional_knowledge"] += 1
+            pending_knowledge.append(
+                {
+                    "knowledge_id": row.id,
+                    "organization_hint": item.get("organization_hint") or "",
+                    "job_title_hint": item.get("job_title_hint") or "",
+                    "acquisition_mode": item.get("acquisition_mode") or "acquired_through_role",
+                    "how_acquired": item.get("how_acquired") or "",
+                    "how_applied": item.get("how_applied") or "",
+                    "confidence": item.get("confidence") or 0.6,
+                }
+            )
 
         for edu in result.education:
             self.db.add(
@@ -298,23 +326,25 @@ class IngestionService:
                 document_id=document.id,
                 status="pending",
                 proposals=proposals,
-                auto_applied=auto_applied,
+                auto_applied={**auto_applied, "knowledge_links": pending_knowledge},
                 summary=result.summary or f"Extracted from {document.filename}",
             )
             self.db.add(pending)
             self.db.flush()
             pending_id = pending.id
+        else:
+            self._link_knowledge_items(pending_knowledge, document)
 
         document.ingested = True
         self.db.commit()
         return {
             "pending_ingestion_id": pending_id,
-            "auto_applied": auto_applied,
+            "auto_applied": {k: v for k, v in auto_applied.items() if k != "knowledge_links"},
             "proposals_count": len(proposals),
             "profile": profile_applied,
             # Backward-compatible alias used by older clients/tests
             "created": auto_applied if not pending_id else {
-                **auto_applied,
+                **{k: v for k, v in auto_applied.items() if k != "knowledge_links"},
                 "pending_review": len(proposals),
             },
         }
@@ -436,6 +466,10 @@ class IngestionService:
                 applied["achievements"] += 1
                 applied["created"] += 1
 
+        self._link_knowledge_items(
+            (pending.auto_applied or {}).get("knowledge_links") or [],
+            document,
+        )
         pending.status = "completed"
         self.db.commit()
         return applied
@@ -578,6 +612,7 @@ class IngestionService:
                 document,
             )
         index_entity(self.db, "experience", row.id)
+        self._attach_experience_knowledge(row, payload, document)
         return row
 
     def _merge_experience(self, row: Experience, payload: dict, document: CareerDocument | None) -> None:
@@ -634,6 +669,57 @@ class IngestionService:
         )
         self.db.flush()
         index_entity(self.db, "experience", row.id)
+        self._attach_experience_knowledge(row, payload, document)
+
+    def _attach_experience_knowledge(
+        self, experience: Experience, payload: dict, document: CareerDocument | None
+    ) -> None:
+        items = list(payload.get("professional_knowledge") or [])
+        for domain in payload.get("domains") or []:
+            name = str(domain).strip()
+            if name:
+                items.append(
+                    {
+                        "name": name,
+                        "kind": "domain",
+                        "depth": "applied",
+                        "how_acquired": f"Used in {experience.job_title} at {experience.organization}",
+                        "confidence": payload.get("confidence") or 0.6,
+                    }
+                )
+        for item in items:
+            data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            name = (data.get("name") or "").strip()
+            if not name:
+                continue
+            knowledge = upsert_knowledge(self.db, self.user, data, document=document)
+            attach_context(
+                self.db,
+                self.user,
+                knowledge,
+                {
+                    "experience_id": experience.id,
+                    "acquisition_mode": data.get("acquisition_mode") or "acquired_through_role",
+                    "how_acquired": data.get("how_acquired") or "",
+                    "how_applied": data.get("how_applied") or "",
+                    "confidence": data.get("confidence") or 0.6,
+                },
+                document=document,
+            )
+        sync_experience_domains(self.db, experience)
+
+    def _link_knowledge_items(self, links: list[dict], document: CareerDocument | None) -> None:
+        for link in links or []:
+            knowledge = self.db.get(ProfessionalKnowledge, link.get("knowledge_id"))
+            if knowledge is None or knowledge.user_id != self.user.id or knowledge.is_deleted:
+                continue
+            experience_id = self._resolve_experience_id(link)
+            if not experience_id:
+                continue
+            attach_context(self.db, self.user, knowledge, {**link, "experience_id": experience_id}, document=document)
+            experience = self.db.get(Experience, experience_id)
+            if experience:
+                sync_experience_domains(self.db, experience)
 
     def _resolve_experience_id(self, payload: dict) -> str | None:
         """Use explicit experience_id, else match organization/job_title hints."""

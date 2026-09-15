@@ -96,6 +96,10 @@ DOMAIN_TERMS = {
     "health", "education", "finance", "fintech", "banking", "government",
     "public sector", "climate", "protection", "logistics", "supply chain",
     "procurement", "grant management", "digital transformation",
+    "warehousing", "freight", "last-mile", "last mile", "tms", "wms",
+    "customs", "saas", "subscription", "billing", "revenue operations",
+    "revops", "accounts payable", "accounts receivable", "revenue recognition",
+    "customer success", "clinical", "pedagogy", "apprenticeship",
 }
 
 # Related-term groups for TRANSFERABLE matching (§17)
@@ -112,6 +116,10 @@ RELATED_GROUPS = [
      "impact measurement", "logical framework"},
     {"digital transformation", "digitalization", "digitization", "ict",
      "information systems", "mis"},
+    {"logistics", "supply chain", "warehousing", "freight", "last mile",
+     "last-mile", "tms", "wms"},
+    {"saas", "subscription", "billing", "revenue operations", "revops",
+     "accounts payable", "accounts receivable", "finance"},
 ]
 
 
@@ -359,6 +367,9 @@ def mock_career_extraction(user_message: str) -> dict:
                     for term in sorted(TECH_LEXICON):
                         if term in bullet.lower() and term not in current_exp["technologies"]:
                             current_exp["technologies"].append(term)
+                    for term in sorted(DOMAIN_TERMS, key=len, reverse=True):
+                        if term in bullet.lower() and term not in current_exp["domains"]:
+                            current_exp["domains"].append(term)
                 continue
             # Non-bullet line: long lines continue the current role, short
             # lines are the header of the next role (dates on following line).
@@ -419,6 +430,77 @@ def mock_career_extraction(user_message: str) -> dict:
 
     flush_exp()
 
+    professional_knowledge: list[dict] = []
+    seen_knowledge: set[str] = set()
+    KIND_HINTS = {
+        "logistics": "industry",
+        "supply chain": "industry",
+        "warehousing": "process",
+        "freight": "process",
+        "last-mile": "process",
+        "last mile": "process",
+        "customs": "regulation",
+        "saas": "industry",
+        "subscription": "process",
+        "billing": "process",
+        "revenue operations": "business_function",
+        "revops": "business_function",
+        "accounts payable": "process",
+        "accounts receivable": "process",
+        "revenue recognition": "regulation",
+        "customer success": "business_function",
+        "humanitarian": "industry",
+        "digital transformation": "domain",
+    }
+    for exp in experiences:
+        for domain in exp.get("domains") or []:
+            key = domain.lower()
+            if key in seen_knowledge:
+                continue
+            seen_knowledge.add(key)
+            professional_knowledge.append(
+                {
+                    "name": domain,
+                    "kind": KIND_HINTS.get(key, "domain"),
+                    "summary": f"Acquired while working as {exp.get('job_title') or 'a professional'} at {exp.get('organization') or 'the organization'}.",
+                    "depth": "applied",
+                    "organization_hint": exp.get("organization") or "",
+                    "job_title_hint": exp.get("job_title") or "",
+                    "how_acquired": f"Role exposure in {exp.get('job_title') or 'this role'}",
+                    "how_applied": "",
+                    "acquisition_mode": "acquired_through_role",
+                    "confidence": 0.7,
+                }
+            )
+            exp.setdefault("professional_knowledge", []).append(
+                {"name": domain, "kind": KIND_HINTS.get(key, "domain"), "depth": "applied"}
+            )
+        # Also scan the whole role text for domain terms not already captured
+        blob = " ".join(
+            [exp.get("job_title") or "", exp.get("organization") or ""]
+            + (exp.get("responsibilities") or [])
+            + (exp.get("achievements") or [])
+        ).lower()
+        for term in DOMAIN_TERMS:
+            if term in blob and term not in (d.lower() for d in exp.get("domains") or []):
+                exp.setdefault("domains", []).append(term)
+                if term not in seen_knowledge:
+                    seen_knowledge.add(term)
+                    professional_knowledge.append(
+                        {
+                            "name": term,
+                            "kind": KIND_HINTS.get(term, "domain"),
+                            "summary": f"Exposed to {term} at {exp.get('organization') or 'this employer'}.",
+                            "depth": "awareness" if term not in blob[:80] else "applied",
+                            "organization_hint": exp.get("organization") or "",
+                            "job_title_hint": exp.get("job_title") or "",
+                            "how_acquired": "Inferred from role description",
+                            "how_applied": "",
+                            "acquisition_mode": "adjacent_exposure",
+                            "confidence": 0.6,
+                        }
+                    )
+
     # de-duplicate skills preserving order
     seen = set()
     unique_skills = []
@@ -436,6 +518,7 @@ def mock_career_extraction(user_message: str) -> dict:
         "languages": languages,
         "achievements": achievements_top,
         "publications": [],
+        "professional_knowledge": professional_knowledge,
         "profile": _extract_profile_block(text),
         "summary": "",
         "notes": ["Extracted by deterministic offline parser; review before marking verified."],
@@ -1245,13 +1328,15 @@ def mock_scoring(user_message: str) -> dict:
             f"Overall fit is {overall:.0%}. "
             f"{counts['MATCHED']} requirement(s) are directly matched by evidence, "
             f"{counts['PARTIALLY_MATCHED']} partially matched, {counts['TRANSFERABLE']} covered by transferable "
-            f"experience, and {counts['NOT_MATCHED']} gap(s) identified."
+            f"experience, and {counts['NOT_MATCHED']} gap(s) identified. "
+            "Domain and process knowledge is scored separately from skills and tools."
         ),
         (
             f"الملاءمة الإجمالية {overall:.0%}. "
             f"{counts['MATCHED']} متطلب مطابق مباشرة بالأدلة، "
             f"{counts['PARTIALLY_MATCHED']} مطابق جزئياً، {counts['TRANSFERABLE']} مغطى بخبرة قابلة للنقل، "
-            f"و{counts['NOT_MATCHED']} فجوة/فجوات."
+            f"و{counts['NOT_MATCHED']} فجوة/فجوات. "
+            "تُقيَّم معرفة المجال والعمليات بشكل منفصل عن المهارات والأدوات."
         ),
     )
     return {

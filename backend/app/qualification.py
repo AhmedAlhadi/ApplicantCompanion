@@ -140,14 +140,17 @@ def _predicate_result(
         minimum = predicate.get("minimum_years")
         if minimum is not None and experiences:
             result = years >= float(minimum)
-    elif kind in {"education_field", "certification", "language", "skill"}:
+    elif kind in {"education_field", "certification", "language", "skill", "domain_expertise"}:
         fact_key = {
             "education_field": "education",
             "certification": "certification",
             "language": "language",
             "skill": "skill",
+            "domain_expertise": "professional_knowledge",
         }[kind]
         candidates = facts.get(fact_key, [])
+        if kind == "domain_expertise" and not candidates:
+            candidates = facts.get("experience", [])
         wanted = terms or ([value] if value else [])
         matches = [
             item for item in candidates

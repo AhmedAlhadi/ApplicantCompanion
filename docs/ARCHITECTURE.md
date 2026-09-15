@@ -57,6 +57,7 @@ and structured Pydantic output — coordinated by `agents/orchestrator.py`:
 ```
 CareerKnowledgeAgent          → text → structured entities + provenance
 CareerNormalizationAgent      → skill dedup/canonicalization (§7)
+… (matching uses skills and professional knowledge separately)
 JobAnalysisAgent              → JD → position info, prioritized requirements
 OrganizationResearchAgent     → sourced claims about the employer (§12)
 HiringTeamResearchAgent       → public hiring-team identification (§13-14)

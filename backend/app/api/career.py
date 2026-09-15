@@ -16,8 +16,10 @@ from ..models import (
     Certification,
     Education,
     Experience,
+    KnowledgeContext,
     Language,
     PendingIngestion,
+    ProfessionalKnowledge,
     Project,
     Publication,
     Skill,
@@ -32,6 +34,8 @@ from ..schemas.api import (
     EducationIn,
     ExperienceIn,
     IngestTextRequest,
+    KnowledgeContextIn,
+    KnowledgeIn,
     LanguageIn,
     NarrativeIn,
     ProfileIn,
@@ -42,6 +46,12 @@ from ..schemas.api import (
 from ..security.auth import audit, get_current_user
 from ..security.uploads import validate_upload
 from ..services.ingestion import IngestionService
+from ..services.knowledge import (
+    attach_context,
+    knowledge_payload,
+    sync_experience_domains,
+    upsert_knowledge,
+)
 from ..services.serializers import evidence_for_entity, to_dict
 
 router = APIRouter(prefix="/api/career", tags=["career"])
@@ -159,6 +169,8 @@ def _register_entity_routes():
             _record_provenance(db, user, model, vector_type, obj.id, data)
             if vector_type:
                 index_entity(db, vector_type, obj.id)
+            if model is Experience:
+                _sync_experience_knowledge(db, user, obj)
             audit(db, user, f"career.{path}.create", model.__tablename__, obj.id, request=request)
             db.commit()
             return to_dict(obj)
@@ -176,6 +188,8 @@ def _register_entity_routes():
                 obj.canonical_name = obj.name
             if vector_type:
                 index_entity(db, vector_type, obj.id)
+            if model is Experience:
+                _sync_experience_knowledge(db, user, obj)
             audit(db, user, f"career.{path}.update", model.__tablename__, obj.id, request=request)
             db.commit()
             return to_dict(obj)
@@ -205,6 +219,198 @@ def _register_entity_routes():
 
 
 _register_entity_routes()
+
+
+def _sync_experience_knowledge(db: Session, user: User, experience: Experience) -> None:
+    for domain in experience.domains or []:
+        name = str(domain).strip()
+        if not name:
+            continue
+        knowledge = upsert_knowledge(
+            db,
+            user,
+            {
+                "name": name,
+                "kind": "domain",
+                "depth": "applied",
+                "how_acquired": f"Used in {experience.job_title} at {experience.organization}",
+                "verification_status": experience.verification_status,
+                "confidence": experience.confidence,
+            },
+        )
+        attach_context(
+            db,
+            user,
+            knowledge,
+            {
+                "experience_id": experience.id,
+                "acquisition_mode": "acquired_through_role",
+                "verification_status": experience.verification_status,
+                "confidence": experience.confidence,
+            },
+        )
+    sync_experience_domains(db, experience)
+
+
+def _validate_knowledge_parents(db: Session, user: User, data: dict) -> None:
+    checks = [
+        ("experience_id", Experience),
+        ("project_id", Project),
+        ("achievement_id", Achievement),
+        ("education_id", Education),
+    ]
+    for field, model in checks:
+        parent_id = data.get(field)
+        if not parent_id:
+            continue
+        parent = db.get(model, parent_id)
+        if parent is None or parent.user_id != user.id or getattr(parent, "is_deleted", False):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid {field}")
+
+
+# ── professional knowledge ───────────────────────────────────────────────────
+
+
+@router.get("/knowledge")
+def list_knowledge(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = (
+        db.query(ProfessionalKnowledge)
+        .filter(ProfessionalKnowledge.user_id == user.id, ProfessionalKnowledge.is_deleted == False)  # noqa: E712
+        .order_by(ProfessionalKnowledge.created_at.desc())
+        .all()
+    )
+    return [knowledge_payload(db, row) for row in rows]
+
+
+@router.post("/knowledge", status_code=201)
+def create_knowledge(
+    payload: KnowledgeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    data = payload.model_dump()
+    contexts = data.pop("contexts", [])
+    row = upsert_knowledge(db, user, data)
+    for ctx in contexts:
+        _validate_knowledge_parents(db, user, ctx)
+        attach_context(db, user, row, ctx)
+        if ctx.get("experience_id"):
+            experience = db.get(Experience, ctx["experience_id"])
+            if experience:
+                sync_experience_domains(db, experience)
+    index_entity(db, "professional_knowledge", row.id)
+    audit(db, user, "career.knowledge.create", "professional_knowledge", row.id, request=request)
+    db.commit()
+    return knowledge_payload(db, row)
+
+
+@router.put("/knowledge/{entity_id}")
+def update_knowledge(
+    entity_id: str,
+    payload: KnowledgeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    obj = _get_owned(db, ProfessionalKnowledge, entity_id, user)
+    data = payload.model_dump()
+    contexts = data.pop("contexts", None)
+    for field, value in data.items():
+        if field == "canonical_name" and not value:
+            continue
+        setattr(obj, field, value)
+    if not obj.canonical_name:
+        obj.canonical_name = obj.name
+    if contexts:
+        for ctx in contexts:
+            _validate_knowledge_parents(db, user, ctx)
+            attach_context(db, user, obj, ctx)
+            if ctx.get("experience_id"):
+                experience = db.get(Experience, ctx["experience_id"])
+                if experience:
+                    sync_experience_domains(db, experience)
+    index_entity(db, "professional_knowledge", obj.id)
+    audit(db, user, "career.knowledge.update", "professional_knowledge", obj.id, request=request)
+    db.commit()
+    return knowledge_payload(db, obj)
+
+
+@router.delete("/knowledge/{entity_id}")
+def delete_knowledge(
+    entity_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    obj = _get_owned(db, ProfessionalKnowledge, entity_id, user)
+    obj.is_deleted = True
+    db.query(KnowledgeContext).filter(
+        KnowledgeContext.knowledge_id == obj.id,
+        KnowledgeContext.is_deleted == False,  # noqa: E712
+    ).update({"is_deleted": True})
+    index_entity(db, "professional_knowledge", obj.id)
+    audit(db, user, "career.knowledge.delete", "professional_knowledge", obj.id, request=request)
+    db.commit()
+    return {"deleted": entity_id}
+
+
+@router.post("/knowledge/{entity_id}/verify")
+def verify_knowledge(
+    entity_id: str,
+    status_value: str = "verified",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if status_value not in ("verified", "unverified", "needs_review"):
+        raise HTTPException(422, "Invalid verification status")
+    obj = _get_owned(db, ProfessionalKnowledge, entity_id, user)
+    obj.verification_status = status_value
+    db.commit()
+    return knowledge_payload(db, obj)
+
+
+@router.post("/knowledge/{entity_id}/contexts", status_code=201)
+def create_knowledge_context(
+    entity_id: str,
+    payload: KnowledgeContextIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    knowledge = _get_owned(db, ProfessionalKnowledge, entity_id, user)
+    data = payload.model_dump()
+    _validate_knowledge_parents(db, user, data)
+    ctx = attach_context(db, user, knowledge, data)
+    if data.get("experience_id"):
+        experience = db.get(Experience, data["experience_id"])
+        if experience:
+            sync_experience_domains(db, experience)
+    index_entity(db, "professional_knowledge", knowledge.id)
+    audit(db, user, "career.knowledge_context.create", "knowledge_context", ctx.id, request=request)
+    db.commit()
+    return knowledge_payload(db, knowledge)
+
+
+@router.delete("/knowledge-contexts/{entity_id}")
+def delete_knowledge_context(
+    entity_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ctx = _get_owned(db, KnowledgeContext, entity_id, user)
+    ctx.is_deleted = True
+    experience_id = ctx.experience_id
+    knowledge_id = ctx.knowledge_id
+    if experience_id:
+        experience = db.get(Experience, experience_id)
+        if experience:
+            sync_experience_domains(db, experience)
+    index_entity(db, "professional_knowledge", knowledge_id)
+    audit(db, user, "career.knowledge_context.delete", "knowledge_context", ctx.id, request=request)
+    db.commit()
+    return {"deleted": entity_id}
 
 
 # Verification status transitions (§47: verified / unverified / needs_review)

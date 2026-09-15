@@ -88,6 +88,58 @@ def _coerce_skill_list(value: Any) -> list[dict[str, str]]:
     return out
 
 
+class ExtractedKnowledge(BaseModel):
+    """Industry, process, or cross-functional knowledge acquired through work."""
+
+    name: str = ""
+    kind: str = "domain"
+    summary: str = ""
+    depth: str = "applied"
+    years_experience: float | None = None
+    organization_hint: str = ""
+    job_title_hint: str = ""
+    how_acquired: str = ""
+    how_applied: str = ""
+    acquisition_mode: str = "acquired_through_role"
+    confidence: float = 0.6
+
+    @field_validator("name", "kind", "summary", "depth", "organization_hint", "job_title_hint", "how_acquired", "how_applied", "acquisition_mode", mode="before")
+    @classmethod
+    def _normalize_strings(cls, value: Any) -> str:
+        return "" if value is None else str(value)
+
+
+def _coerce_knowledge_list(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        value = [value]
+    out: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, str):
+            name = item.strip()
+            if name:
+                out.append({"name": name, "kind": "domain", "depth": "applied"})
+            continue
+        if isinstance(item, BaseModel):
+            dumped = item.model_dump()
+            name = str(dumped.get("name") or "").strip()
+            if name:
+                out.append(dumped)
+            continue
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("term") or item.get("canonical_name") or ""
+            if not isinstance(name, str):
+                name = str(name) if name is not None else ""
+            name = name.strip()
+            if not name:
+                continue
+            data = dict(item)
+            data["name"] = name
+            out.append(data)
+    return out
+
+
 class ExtractedExperience(BaseModel):
     organization: str = ""
     job_title: str = ""
@@ -103,6 +155,7 @@ class ExtractedExperience(BaseModel):
     domains: list[str] = Field(default_factory=list)
     leadership: list[str] = Field(default_factory=list)
     stakeholders: list[str] = Field(default_factory=list)
+    professional_knowledge: list[ExtractedKnowledge] = Field(default_factory=list)
     quantified_results: list[str] = Field(default_factory=list)
     confidence: float = 0.5
 
@@ -121,6 +174,11 @@ class ExtractedExperience(BaseModel):
     @classmethod
     def _normalize_str_lists(cls, value: Any) -> list[str]:
         return _coerce_str_list(value)
+
+    @field_validator("professional_knowledge", mode="before")
+    @classmethod
+    def _normalize_knowledge(cls, value: Any) -> list[dict[str, Any]]:
+        return _coerce_knowledge_list(value)
 
 
 class ExtractedEducation(BaseModel):
@@ -178,6 +236,7 @@ class CareerExtractionResult(BaseModel):
     languages: list[ExtractedLanguage] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
     publications: list[ExtractedPublication] = Field(default_factory=list)
+    professional_knowledge: list[ExtractedKnowledge] = Field(default_factory=list)
     profile: ExtractedProfile = Field(default_factory=ExtractedProfile)
     summary: str = ""
     notes: list[str] = Field(default_factory=list)
@@ -191,6 +250,11 @@ class CareerExtractionResult(BaseModel):
     @classmethod
     def _normalize_skills(cls, value: Any) -> list[dict[str, str]]:
         return _coerce_skill_list(value)
+
+    @field_validator("professional_knowledge", mode="before")
+    @classmethod
+    def _normalize_knowledge(cls, value: Any) -> list[dict[str, Any]]:
+        return _coerce_knowledge_list(value)
 
     @field_validator("achievements", "notes", mode="before")
     @classmethod
@@ -274,7 +338,7 @@ class QualificationPredicate(BaseModel):
 
     kind: Literal[
         "degree_level", "relevant_experience", "education_field",
-        "certification", "language", "skill", "other",
+        "certification", "language", "skill", "domain_expertise", "other",
     ] = "other"
     value: str = ""
     minimum_level: str = ""
@@ -299,6 +363,9 @@ class QualificationPredicate(BaseModel):
             "degree": "degree_level", "education": "degree_level",
             "experience": "relevant_experience", "years_experience": "relevant_experience",
             "field": "education_field",
+            "domain": "domain_expertise",
+            "domain_knowledge": "domain_expertise",
+            "industry": "domain_expertise",
         }
         data["kind"] = kind_aliases.get(str(data.get("kind", "other")).lower(), data.get("kind", "other"))
         return data

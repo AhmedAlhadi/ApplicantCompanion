@@ -16,6 +16,27 @@ from .base import SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, utcnow
 
 VERIFICATION_STATUSES = ("verified", "unverified", "needs_review")
 
+KNOWLEDGE_KINDS = (
+    "industry",
+    "domain",
+    "business_function",
+    "process",
+    "methodology",
+    "regulation",
+    "product_service",
+    "customer_stakeholder",
+    "terminology",
+)
+
+KNOWLEDGE_DEPTHS = ("awareness", "applied", "practiced", "expert")
+
+KNOWLEDGE_ACQUISITION_MODES = (
+    "acquired_through_role",
+    "applied",
+    "adjacent_exposure",
+    "training",
+)
+
 
 class CareerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "career_profiles"
@@ -190,6 +211,56 @@ class CareerEvidence(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source_page: Mapped[str] = mapped_column(String(32), default="")
     source_section: Mapped[str] = mapped_column(String(255), default="")
     original_text: Mapped[str] = mapped_column(Text, default="")
+    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+
+
+class ProfessionalKnowledge(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """Industry, process, and cross-functional knowledge gained through work."""
+
+    __tablename__ = "professional_knowledge"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    canonical_name: Mapped[str] = mapped_column(String(255), index=True)
+    kind: Mapped[str] = mapped_column(String(64), default="domain", index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    depth: Mapped[str] = mapped_column(String(32), default="applied")
+    years_experience: Mapped[float | None] = mapped_column(Float, nullable=True)
+    synonyms: Mapped[list] = mapped_column(JSON, default=list)
+    evidence_count: Mapped[int] = mapped_column(default=0)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+
+
+class KnowledgeContext(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """Where and how a knowledge item was acquired or applied."""
+
+    __tablename__ = "knowledge_contexts"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    knowledge_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("professional_knowledge.id"), index=True
+    )
+    experience_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("experiences.id"), nullable=True, index=True
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.id"), nullable=True
+    )
+    achievement_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("achievements.id"), nullable=True
+    )
+    education_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("educations.id"), nullable=True
+    )
+    acquisition_mode: Mapped[str] = mapped_column(String(64), default="acquired_through_role")
+    how_acquired: Mapped[str] = mapped_column(Text, default="")
+    how_applied: Mapped[str] = mapped_column(Text, default="")
+    source_document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("career_documents.id"), nullable=True
+    )
     verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
 

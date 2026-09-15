@@ -153,6 +153,31 @@ class NarrativeIn(BaseModel):
     content: str
 
 
+class KnowledgeContextIn(BaseModel):
+    experience_id: str | None = None
+    project_id: str | None = None
+    achievement_id: str | None = None
+    education_id: str | None = None
+    acquisition_mode: str = "acquired_through_role"
+    how_acquired: str = ""
+    how_applied: str = ""
+    verification_status: str = "unverified"
+    confidence: float = 0.5
+
+
+class KnowledgeIn(BaseModel):
+    name: str
+    canonical_name: str = ""
+    kind: str = "domain"
+    summary: str = ""
+    depth: str = "applied"
+    years_experience: float | None = None
+    synonyms: list[str] = Field(default_factory=list)
+    verification_status: str = "unverified"
+    confidence: float = 0.5
+    contexts: list[KnowledgeContextIn] = Field(default_factory=list)
+
+
 class IngestTextRequest(BaseModel):
     """Free-form text ingestion into the career knowledge base (§6)."""
 

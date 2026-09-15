@@ -15,7 +15,9 @@ schemas (§52). Interactive OpenAPI docs are served at `/api/docs`.
 ## Career Knowledge (§47)
 
 `/api/career/<entity>` for `experiences`, `achievements`, `projects`, `skills`,
-`education`, `certifications`, `languages`, `publications`, `narratives`:
+`education`, `certifications`, `languages`, `publications`, `narratives`.
+Professional knowledge (industry, process, and cross-functional exposure) uses
+`/api/career/knowledge`.
 
 | Method | Path | Description |
 |---|---|---|
@@ -24,6 +26,11 @@ schemas (§52). Interactive OpenAPI docs are served at `/api/docs`.
 | PUT | `/api/career/<entity>/{id}` | Update |
 | DELETE | `/api/career/<entity>/{id}` | Soft delete |
 | POST | `/api/career/<entity>/{id}/verify?status_value=verified` | Verification status |
+| GET/POST | `/api/career/knowledge` | List / create evidenced domain and process knowledge |
+| PUT/DELETE | `/api/career/knowledge/{id}` | Update / soft-delete |
+| POST | `/api/career/knowledge/{id}/verify` | Verification status |
+| POST | `/api/career/knowledge/{id}/contexts` | Link knowledge to a role, project, achievement, or education |
+| DELETE | `/api/career/knowledge-contexts/{id}` | Soft-delete a knowledge context |
 
 Plus:
 

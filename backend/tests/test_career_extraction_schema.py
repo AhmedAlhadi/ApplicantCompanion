@@ -45,3 +45,30 @@ def test_achievements_accept_objects_and_strings():
     ]
     assert result.experiences[0].achievements == ["Shipped feature (10%)"]
     assert result.experiences[0].skills == ["Python"]
+
+
+def test_professional_knowledge_accepts_strings_and_objects():
+    result = CareerExtractionResult.model_validate(
+        {
+            "professional_knowledge": [
+                "logistics",
+                {
+                    "name": "subscription billing",
+                    "kind": "process",
+                    "depth": "applied",
+                    "organization_hint": "CloudCo",
+                },
+            ],
+            "experiences": [
+                {
+                    "organization": "ShipCo",
+                    "job_title": "Developer",
+                    "domains": ["freight"],
+                    "professional_knowledge": ["warehousing"],
+                }
+            ],
+        }
+    )
+    assert [item.name for item in result.professional_knowledge] == ["logistics", "subscription billing"]
+    assert result.professional_knowledge[1].kind == "process"
+    assert result.experiences[0].professional_knowledge[0].name == "warehousing"

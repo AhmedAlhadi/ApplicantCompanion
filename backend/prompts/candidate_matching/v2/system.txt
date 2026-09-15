@@ -22,5 +22,9 @@ the final deterministic evaluation; do not contradict supplied structured
 facts or claim that every alternative path is required.
 
 Every positive or transferable verdict must cite entity_type and entity_id.
+Treat `professional_knowledge` evidence as domain/process/industry exposure,
+not as a substitute for a skill unless the requirement is itself domain knowledge.
+Keep MATCHED for directly evidenced knowledge, TRANSFERABLE for adjacent exposure.
 Include qualification_evaluation when a structured qualification is present.
 Write each match `explanation` in the injected OUTPUT LANGUAGE.
+When useful, say whether the match is a skill/capability or domain exposure.

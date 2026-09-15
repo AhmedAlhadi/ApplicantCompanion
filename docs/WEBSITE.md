@@ -27,7 +27,7 @@ Serah turns your career history into a living knowledge base, then uses it to an
 
 ### Longer paragraph (product page)
 
-Most AI resume tools rewrite your CV in the voice of the job ad and quietly upgrade your experience. Serah does the opposite. It first extracts a structured Career Knowledge Base from your documents — roles, projects, achievements, skills, education, certifications, languages, publications. Then, for each new job, specialized AI agents parse the vacancy, research the employer from public sources, retrieve only the relevant evidence, and score the match programmatically. Documents are generated from that evidence, validated against it, and versioned so you can edit, regenerate a section, or restore an earlier draft. You stay the decision maker.
+Most AI resume tools rewrite your CV in the voice of the job ad and quietly upgrade your experience. Serah does the opposite. It first extracts a structured Career Knowledge Base from your documents — roles, projects, achievements, skills, education, certifications, languages, publications, and the domain, industry, and process knowledge you picked up on the job. Then, for each new job, specialized AI agents parse the vacancy, research the employer from public sources, retrieve only the relevant evidence, and score the match programmatically. Documents are generated from that evidence, validated against it, and versioned so you can edit, regenerate a section, or restore an earlier draft. You stay the decision maker.
 
 ---
 
@@ -90,6 +90,7 @@ A persistent, structured record of your professional life — not a single uploa
 
 - Profile, employment history, projects, achievements
 - Skills (technical, functional, domain, behavioral, tools, methodologies)
+- Professional knowledge gained on the job: industry, processes, terminology, regulations, products, and stakeholder environments — kept distinct from skills
 - Education, certifications, languages, publications
 - Leadership, management, and consulting experience
 - Previous applications, outcomes, and lessons learned
