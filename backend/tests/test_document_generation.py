@@ -9,14 +9,14 @@ from app.templates.renderer import render_cover_letter_text
 
 def test_latest_cv_prompt_requires_all_experiences():
     prompt = load_prompt("cv_generation")
-    assert prompt.version == "v2"
+    assert prompt.version == "v3"
     assert "EVERY experience" in prompt.system
     assert "NEVER write ids" in prompt.system
 
 
 def test_latest_cover_letter_prompt_forbids_inline_ids():
     prompt = load_prompt("cover_letter_generation")
-    assert prompt.version == "v2"
+    assert prompt.version == "v3"
     assert "View Evidence" in prompt.system
     assert "NEVER include" in prompt.system
 

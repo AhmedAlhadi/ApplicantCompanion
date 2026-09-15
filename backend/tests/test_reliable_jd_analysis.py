@@ -30,8 +30,8 @@ def test_jd_schema_normalizes_common_provider_drift():
 
 
 def test_reliable_prompts_and_structured_retrieval_are_enabled():
-    assert load_prompt("jd_analysis").version == "v2"
-    assert load_prompt("candidate_matching").version == "v2"
+    assert load_prompt("jd_analysis").version == "v3"
+    assert load_prompt("candidate_matching").version == "v3"
     assert {"education", "certification", "language"} <= set(INDEXED_ENTITY_TYPES)
 
 
