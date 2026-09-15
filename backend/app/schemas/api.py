@@ -289,6 +289,18 @@ class SettingsUpdate(BaseModel):
     ats_relevance: Literal["high", "low"] | None = None
 
 
+class CoachConversationIn(BaseModel):
+    title: str = ""
+    job_id: str | None = None
+    application_id: str | None = None
+
+
+class CoachMessageIn(BaseModel):
+    content: str
+    job_id: str | None = None
+    application_id: str | None = None
+
+
 class ModelTestRequest(BaseModel):
     provider: str
     model: str = ""

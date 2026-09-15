@@ -21,23 +21,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits: dict[str, deque] = defaultdict(deque)
 
     async def dispatch(self, request: Request, call_next):
-        limit = get_settings().rate_limit_per_minute
+        settings = get_settings()
         path = request.url.path
-        if (
-            limit > 0
-            and path.startswith("/api/")
-            and path not in {"/api/health", "/api/auth/config"}
-        ):
+        if path.startswith("/api/") and path not in {"/api/health", "/api/auth/config"}:
             forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
             key = forwarded or (request.client.host if request.client else "unknown")
             now = time.monotonic()
-            window = self._hits[key]
-            while window and now - window[0] > 60:
-                window.popleft()
-            if len(window) >= limit:
-                return JSONResponse(
-                    {"detail": "Rate limit exceeded"},
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                )
-            window.append(now)
+            if path.startswith("/api/coach") and request.method in {"POST", "PUT"}:
+                coach_limit = settings.coach_rate_limit_per_minute
+                if coach_limit > 0:
+                    coach_key = f"coach:{key}"
+                    window = self._hits[coach_key]
+                    while window and now - window[0] > 60:
+                        window.popleft()
+                    if len(window) >= coach_limit:
+                        return JSONResponse(
+                            {"detail": "Coach rate limit exceeded"},
+                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        )
+                    window.append(now)
+            limit = settings.rate_limit_per_minute
+            if limit > 0:
+                window = self._hits[key]
+                while window and now - window[0] > 60:
+                    window.popleft()
+                if len(window) >= limit:
+                    return JSONResponse(
+                        {"detail": "Rate limit exceeded"},
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    )
+                window.append(now)
         return await call_next(request)

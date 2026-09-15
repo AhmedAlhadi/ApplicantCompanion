@@ -67,6 +67,7 @@ ScoringNarrativeAgent         → qualitative overlay only
 ApplicationStrategyAgent      → positioning, priorities, keywords (§22)
 CVAgent / CoverLetterAgent    → evidence-cited documents (§23-27)
 ATSAnalysisAgent              → compatibility analysis (§25)
+CareerCoachAgent              → retrieval-grounded advisor with server-resolved citations
 ```
 
 ## Orchestration (§39, §53)

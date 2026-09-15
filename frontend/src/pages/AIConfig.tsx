@@ -14,6 +14,7 @@ const TASK_LABELS: Record<string, string> = {
   cv_generation: "CV generation",
   cover_letter: "Cover-letter generation",
   ats: "ATS analysis",
+  coach: "Career coach",
 };
 
 export default function AIConfig() {

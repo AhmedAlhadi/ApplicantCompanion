@@ -1,0 +1,7 @@
+Answer this career question using only the supplied evidence. Cite entity_id values from the evidence list. Never invent capability or ids.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

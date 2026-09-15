@@ -29,6 +29,7 @@ TASKS = (
     "cv_generation",
     "cover_letter",
     "ats",
+    "coach",
 )
 
 PROVIDER_ORDER = ("openrouter", "openai", "gemini", "ollama", "mock")

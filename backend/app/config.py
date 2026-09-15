@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     llm_model_cv_generation: str = "openrouter:openai/gpt-4o"
     llm_model_cover_letter: str = "openrouter:openai/gpt-4o"
     llm_model_ats: str = "openrouter:openai/gpt-4o-mini"
+    llm_model_coach: str = "openrouter:openai/gpt-4o-mini"
     llm_timeout_seconds: float = 120.0
     llm_transport_retries: int = 2
 
@@ -94,6 +95,7 @@ class Settings(BaseSettings):
 
     # Rate limiting
     rate_limit_per_minute: int = 120
+    coach_rate_limit_per_minute: int = 20
 
     frontend_origin: str = "http://localhost:5173"
 

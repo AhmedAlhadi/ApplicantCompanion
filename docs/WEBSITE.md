@@ -200,6 +200,10 @@ ATS analysis is optional. Hide ATS scores in Settings when the profession does n
 
 Optimization uses standard headings, clean text, truthful title alignment, and natural keyword frequency. No tables-as-content tricks, no graphics-as-text, no fake qualifications.
 
+### Career Coach
+
+Ask career questions from a dedicated Coach page (and from a job or application). Answers use only your retrieved evidence, cite the supporting records, and stay in your account. The coach does not invent experience and does not replace the structured workspace.
+
 ### Document editor, versions, and export
 
 - Full edit of generated content

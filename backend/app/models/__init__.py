@@ -24,6 +24,7 @@ from .career import (
     Publication,
     Skill,
 )
+from .coach import CoachConversation, CoachMessage
 from .job import (
     HiringContext,
     Job,
@@ -40,7 +41,7 @@ from .user import AuditLog, User, UserSetting
 __all__ = [
     "Achievement", "AgentExecution", "Application", "ApplicationStrategy",
     "AuditLog", "CareerDocument", "CareerEvidence", "CareerNarrative",
-    "CareerProfile", "Certification", "CoverLetter", "CV", "DocumentVersion",
+    "CareerProfile", "Certification", "CoachConversation", "CoachMessage", "CoverLetter", "CV", "DocumentVersion",
     "Education", "Experience", "HiringContext", "Job", "JobRequirement",
     "JobScore", "KnowledgeContext", "Language", "Organization", "OrganizationResearch",
     "PendingIngestion", "Person", "ProfessionalKnowledge", "Project", "Publication",

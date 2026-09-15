@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquare,
   Moon,
   Network,
   Settings as SettingsIcon,
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
   { to: "/jobs", icon: Briefcase },
   { to: "/applications", icon: FileStack },
   { to: "/documents", icon: Files },
+  { to: "/coach", icon: MessageSquare },
 ];
 
 function isNavActive(item: NavItem, pathname: string) {
@@ -95,6 +97,7 @@ export function Layout({ user }: { user: User }) {
     "/jobs": t("nav.jobs"),
     "/applications": t("nav.applications"),
     "/documents": t("nav.documents"),
+    "/coach": t("nav.coach"),
   };
 
   useEffect(() => {

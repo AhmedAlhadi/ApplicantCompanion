@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import admin, applications, auth, career, documents, jobs, misc, onboarding
+from .api import admin, applications, auth, career, coach, documents, jobs, misc, onboarding
 from .config import get_settings
 from .observability import ObservabilityMiddleware, configure_logging
 from .security.rate_limit import RateLimitMiddleware
@@ -54,6 +54,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(career.router)
+app.include_router(coach.router)
 app.include_router(jobs.router)
 app.include_router(applications.router)
 app.include_router(documents.router)

@@ -771,3 +771,32 @@ class ValidationReport(BaseModel):
                 self.quality_ok,
             ]
         )
+
+
+class CoachAnswer(BaseModel):
+    answer: str = ""
+    citation_ids: list[str] = Field(default_factory=list)
+    refused: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "answer" not in data:
+            data["answer"] = data.get("text") or data.get("message") or ""
+        ids = data.get("citation_ids") or data.get("citations") or data.get("evidence_ids") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        cleaned: list[str] = []
+        for item in ids:
+            if isinstance(item, str) and item.strip():
+                cleaned.append(item.strip())
+            elif isinstance(item, dict):
+                eid = item.get("entity_id") or item.get("id") or ""
+                if eid:
+                    cleaned.append(str(eid).strip())
+        data["citation_ids"] = cleaned
+        return data
+

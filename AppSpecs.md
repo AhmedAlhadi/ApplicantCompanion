@@ -91,6 +91,7 @@ Frontend
 - Cover-letter editor
 - Application history
 - Career knowledge management interface
+- Career Coach (retrieval-grounded advisor with citations)
 
 Backend
 

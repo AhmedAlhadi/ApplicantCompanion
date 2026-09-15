@@ -524,3 +524,29 @@ export interface ProfessionalKnowledge {
   confidence: number;
   contexts: KnowledgeContext[];
 }
+
+export interface CoachCitation {
+  entity_type: string;
+  entity_id: string;
+  label: string;
+  verification_status?: string;
+}
+
+export interface CoachMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: CoachCitation[];
+  created_at: string | null;
+  token_usage?: Record<string, number>;
+}
+
+export interface CoachConversation {
+  id: string;
+  title: string;
+  job_id: string | null;
+  application_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  messages?: CoachMessage[];
+}

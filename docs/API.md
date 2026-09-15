@@ -86,6 +86,15 @@ ATS analysis is advisory. Users who work in professions that do not use
 applicant-tracking systems can hide ATS scores in Settings (`ats_relevance=low`).
 Documents remain scannable without forcing software-industry vocabulary.
 
+| GET/POST | `/api/coach/conversations` | List / create Career Coach threads |
+| GET/DELETE | `/api/coach/conversations/{id}` | Read / soft-delete a thread (owner only) |
+| POST | `/api/coach/conversations/{id}/messages` | Ask a grounded question (stricter rate limit) |
+| POST | `/api/coach/conversations/{id}/messages/stream` | Same answer as SSE (`data:` JSON then `[DONE]`) |
+
+Coach answers retrieve only the signed-in user's top evidence. Citation IDs
+are resolved server-side from that set. Message bodies are not written to the
+ordinary audit log.
+
 ## Platform
 
 | Method | Path | Description |

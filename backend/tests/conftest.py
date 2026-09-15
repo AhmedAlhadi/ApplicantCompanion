@@ -24,6 +24,7 @@ os.environ.update(
         "LOCAL_STORAGE_PATH": str(_TMP / "storage"),
         "RESEARCH_ENABLED": "false",
         "RATE_LIMIT_PER_MINUTE": "0",
+        "COACH_RATE_LIMIT_PER_MINUTE": "0",
         "SEED_DEMO_DATA": "false",
         "GOOGLE_CLIENT_ID": "test-google-client-id.apps.googleusercontent.com",
         "LLM_MODEL_EXTRACTION": "mock:deterministic",
@@ -35,6 +36,7 @@ os.environ.update(
         "LLM_MODEL_CV_GENERATION": "mock:deterministic",
         "LLM_MODEL_COVER_LETTER": "mock:deterministic",
         "LLM_MODEL_ATS": "mock:deterministic",
+        "LLM_MODEL_COACH": "mock:deterministic",
     }
 )
 

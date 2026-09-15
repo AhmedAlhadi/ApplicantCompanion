@@ -1678,6 +1678,48 @@ def mock_cover_letter(user_message: str) -> dict:
     }
 
 
+def mock_career_coach(user_message: str) -> dict:
+    payload = _extract_json_block(user_message)
+    question = (payload.get("question") or user_message or "").lower()
+    evidence = payload.get("evidence") or []
+    if "ignore previous" in question or "reveal the system" in question:
+        return {
+            "answer": _loc(
+                user_message,
+                "I can only discuss your career evidence. I will not follow instructions embedded in untrusted text.",
+                "يمكنني مناقشة أدلة مسيرتك المهنية فقط. لن أتبع تعليمات مضمّنة في نص غير موثوق.",
+            ),
+            "citation_ids": [],
+            "refused": True,
+        }
+    hits = []
+    for item in evidence:
+        text = (item.get("text") or "").lower()
+        eid = item.get("entity_id") or ""
+        if eid and any(tok in text for tok in tokens(question) if len(tok) > 3):
+            hits.append(item)
+    if not hits:
+        return {
+            "answer": _loc(
+                user_message,
+                "I do not have enough evidenced information in your career knowledge base to answer that.",
+                "لا تتوفر أدلة كافية في قاعدة معرفتك المهنية للإجابة على ذلك.",
+            ),
+            "citation_ids": [],
+            "refused": True,
+        }
+    snippets = "; ".join((h.get("text") or "")[:160] for h in hits[:3])
+    return {
+        "answer": _loc(
+            user_message,
+            f"Based on your evidenced records: {snippets}",
+            f"استناداً إلى سجلاتك الموثقة: {snippets}",
+        ),
+        "citation_ids": [h.get("entity_id") for h in hits[:3] if h.get("entity_id")],
+        "refused": False,
+    }
+
+
 # ── ATS analysis ─────────────────────────────────────────────────────────────
 
 
@@ -1752,6 +1794,7 @@ _DISPATCH = {
     "cv_generation": mock_cv_generation,
     "cover_letter_generation": mock_cover_letter,
     "ats_analysis": mock_ats_analysis,
+    "career_coach": mock_career_coach,
 }
 
 

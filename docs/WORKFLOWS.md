@@ -89,3 +89,17 @@ curl -s -X POST localhost:8000/api/career/ingest-text \
 
 Extracted items arrive as `needs_review`; verify them in the Career Knowledge
 UI so generated documents can rely on them.
+
+## 4. Career Coach
+
+```bash
+CONV=$(curl -s -X POST localhost:8000/api/coach/conversations \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"Fit for this role"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+
+curl -s -X POST localhost:8000/api/coach/conversations/$CONV/messages \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"content":"What evidenced domain knowledge do I have for this kind of role?"}'
+```
+

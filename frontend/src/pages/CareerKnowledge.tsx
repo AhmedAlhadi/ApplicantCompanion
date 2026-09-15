@@ -1109,7 +1109,7 @@ export default function CareerKnowledge() {
   return (
     <>
       <h1 className="page-title">{t("career.title")}</h1>
-      <p className="page-sub">{t("career.sub")}</p>
+      <p className="page-sub">{t("career.sub")} <Link to="/coach">{t("coach.askAboutCareer")}</Link></p>
       {!!pendingCount.data?.length && tab !== "pending" && (
         <div className="alert warn">
           {pendingCount.data.length === 1 ? t("career.pendingAlert", { n: pendingCount.data.length }) : t("career.pendingAlertPlural", { n: pendingCount.data.length })}{" "}

@@ -145,6 +145,8 @@ export default function ApplicationDetail() {
           <p className="page-sub">
             {a.job?.organization_name} {a.job?.location ? `· ${a.job.location}` : ""}{" "}
             <Link to={`/jobs/${a.job_id}`} className="small">{t("application.viewJob")}</Link>
+            {" "}
+            <Link to={`/coach?application=${a.id}&job=${a.job_id}`} className="small">{t("coach.askAboutJob")}</Link>
           </p>
         </div>
         <span className={`badge ${a.status}`} style={{ fontSize: 13 }}>{a.status}</span>

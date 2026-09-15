@@ -8,6 +8,7 @@ import AdminUsers from "./pages/AdminUsers";
 import AIConfig from "./pages/AIConfig";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import Applications from "./pages/Applications";
+import CareerCoach from "./pages/CareerCoach";
 import CareerKnowledge from "./pages/CareerKnowledge";
 import Dashboard from "./pages/Dashboard";
 import DocumentEditor from "./pages/DocumentEditor";
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="/applications/:id" element={<ApplicationDetail />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/documents/:id" element={<DocumentEditor />} />
+          <Route path="/coach" element={<CareerCoach />} />
           <Route path="/templates" element={<Navigate to="/settings" replace />} />
           <Route path="/cover-letter-templates" element={<Navigate to="/settings" replace />} />
           <Route path="/settings" element={<Settings />} />

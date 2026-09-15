@@ -246,6 +246,7 @@ export default function JobDetail() {
           <button className="primary" onClick={startApplication} disabled={busy || workflowActive}>
             {relatedApps.length ? t("jobDetail.openApp") : t("jobDetail.startApp")} <ArrowRight aria-hidden />
           </button>
+          <Link to={`/coach?job=${job.id}`}>{t("coach.askAboutJob")}</Link>
           <button className="danger" onClick={deleteJob} disabled={busy || workflowActive}>
             <Trash2 aria-hidden /> {t("common.delete")}
           </button>
