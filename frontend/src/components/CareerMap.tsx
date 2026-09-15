@@ -482,18 +482,18 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
     });
   };
 
-  if (bundle.loading) return <p className="muted">Loading career map…</p>;
+  if (bundle.loading) return <p className="muted">{t("career.loadingMap")}</p>;
   if (bundle.error) return <p className="alert error">{bundle.error}</p>;
   if (!bundle.data || !stats?.total) {
-    return <Empty>Nothing in the knowledge base yet — ingest a CV or add a role to see the map.</Empty>;
+    return <Empty>{t("career.mapEmpty")}</Empty>;
   }
 
   return (
     <>
       <div className="ck-stats">
-        <div className="stat-card"><div className="stat-value">{stats.experiences}</div><div className="stat-label">Roles</div></div>
-        <div className="stat-card"><div className="stat-value">{stats.projects}</div><div className="stat-label">Projects</div></div>
-        <div className="stat-card"><div className="stat-value">{stats.skills}</div><div className="stat-label">Skills</div></div>
+        <div className="stat-card"><div className="stat-value">{stats.experiences}</div><div className="stat-label">{t("map.roles")}</div></div>
+        <div className="stat-card"><div className="stat-value">{stats.projects}</div><div className="stat-label">{t("map.projects")}</div></div>
+        <div className="stat-card"><div className="stat-value">{stats.skills}</div><div className="stat-label">{t("map.skills")}</div></div>
         <div className="stat-card"><div className="stat-value">{stats.knowledge}</div><div className="stat-label">{t("map.knowledge")}</div></div>
         <div className="stat-card"><div className="stat-value">{stats.techs}</div><div className="stat-label">{t("map.technologies")}</div></div>
       </div>

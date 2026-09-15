@@ -235,7 +235,7 @@ function EntityForm({ config, initial, onSaved, onCancel }: { config: EntityConf
       else await api.post(config.path, payload);
       onSaved();
     } catch (err: any) {
-      setError(typeof err.detail === "string" ? err.detail : "Save failed");
+      setError(typeof err.detail === "string" ? err.detail : t("common.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -290,6 +290,7 @@ function EvidencePanel({ entityType, entityId }: { entityType: string; entityId:
 }
 
 function EntityTab({ config }: { config: EntityConfig }) {
+  const { t } = useT();
   const { data, reload, loading } = useApi<any[]>(() => api.get(config.path));
   const [editing, setEditing] = useState<any | null>(null);
   const [adding, setAdding] = useState(false);
@@ -343,7 +344,7 @@ function EntityTab({ config }: { config: EntityConfig }) {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this entry?")) return;
+    if (!confirm(t("career.confirmDelete"))) return;
     await api.delete(`${config.path}/${id}`);
     reload();
   };
@@ -356,7 +357,7 @@ function EntityTab({ config }: { config: EntityConfig }) {
     <>
       <div className="row spread mb">
         <p className="muted" style={{ margin: 0 }}>{data?.length ?? 0} entr{data?.length === 1 ? "y" : "ies"}</p>
-        <button className="primary sm" onClick={() => { setAdding(true); setEditing(null); }}><Plus aria-hidden /> Add</button>
+        <button className="primary sm" onClick={() => { setAdding(true); setEditing(null); }}><Plus aria-hidden /> {t("common.add")}</button>
       </div>
       {(adding || editing) && (
         <EntityForm config={config} initial={editing} onSaved={() => { setAdding(false); setEditing(null); reload(); }} onCancel={() => { setAdding(false); setEditing(null); }} />
@@ -947,14 +948,14 @@ function KnowledgeTab() {
       setEditing(null);
       reload();
     } catch (err: any) {
-      setError(typeof err.detail === "string" ? err.detail : "Save failed");
+      setError(typeof err.detail === "string" ? err.detail : t("common.saveFailed"));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this entry?")) return;
+    if (!confirm(t("career.confirmDelete"))) return;
     await api.delete(`/api/career/knowledge/${id}`);
     reload();
   };
@@ -969,12 +970,12 @@ function KnowledgeTab() {
     <>
       <div className="row spread mb">
         <p className="muted" style={{ margin: 0 }}>{t("career.knowledgeHint")}</p>
-        <button className="primary sm" onClick={() => startEdit()}><Plus aria-hidden /> Add</button>
+        <button className="primary sm" onClick={() => startEdit()}><Plus aria-hidden /> {t("common.add")}</button>
       </div>
       {(adding || editing) && (
         <form className="panel" onSubmit={save}>
-          <h3>{editing ? "Edit" : "Add"} knowledge</h3>
-          <label>{t("career.fields.skill").replace("Skill", "Knowledge")}</label>
+          <h3>{editing ? t("career.editKnowledge") : t("career.addKnowledge")}</h3>
+          <label>{t("career.knowledgeName")}</label>
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
           <div className="form-row">
             <div>
@@ -1007,13 +1008,13 @@ function KnowledgeTab() {
           <textarea value={form.how_applied} onChange={(e) => setForm({ ...form, how_applied: e.target.value })} rows={2} />
           <ErrorBox error={error} />
           <div className="row mt">
-            <button className="primary" disabled={busy}>Save</button>
-            <button type="button" className="ghost" onClick={() => { setAdding(false); setEditing(null); }}>Cancel</button>
+            <button className="primary" disabled={busy}>{t("common.save")}</button>
+            <button type="button" className="ghost" onClick={() => { setAdding(false); setEditing(null); }}>{t("common.cancel")}</button>
           </div>
         </form>
       )}
-      {loading && <p className="muted">Loading…</p>}
-      {!loading && !data?.length && <Empty icon={Inbox}>Nothing here yet — add knowledge from a role or ingest a CV.</Empty>}
+      {loading && <p className="muted">{t("common.loading")}</p>}
+      {!loading && !data?.length && <Empty icon={Inbox}>{t("career.knowledgeEmpty")}</Empty>}
       {data?.map((row) => (
         <div className="list-item" key={row.id}>
           <div className="row spread">
@@ -1030,11 +1031,11 @@ function KnowledgeTab() {
               {row.verification_status && <span className={`badge ${row.verification_status}`}>{row.verification_status.replace("_", " ")}</span>}
               {row.verification_status !== "verified" && (
                 <button className="sm" onClick={async () => { await api.post(`/api/career/knowledge/${row.id}/verify?status_value=verified`); reload(); }}>
-                  <Check aria-hidden /> Mark verified
+                  <Check aria-hidden /> {t("career.markVerified")}
                 </button>
               )}
-              <button className="sm" onClick={() => startEdit(row)}><Pencil aria-hidden /> Edit</button>
-              <button className="sm danger" onClick={() => remove(row.id)}><Trash2 aria-hidden /> Delete</button>
+              <button className="sm" onClick={() => startEdit(row)}><Pencil aria-hidden /> {t("common.edit")}</button>
+              <button className="sm danger" onClick={() => remove(row.id)}><Trash2 aria-hidden /> {t("common.delete")}</button>
             </div>
           </div>
         </div>

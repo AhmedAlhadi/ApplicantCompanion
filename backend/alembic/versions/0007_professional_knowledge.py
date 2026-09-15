@@ -4,6 +4,7 @@ Revision ID: 0007_professional_knowledge
 Revises: 0006_user_oauth
 Create Date: 2026-09-15
 """
+from datetime import datetime, timezone
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -98,6 +99,8 @@ def upgrade() -> None:
         sa.column("verification_status", sa.String),
         sa.column("confidence", sa.Float),
         sa.column("is_deleted", sa.Boolean),
+        sa.column("created_at", sa.DateTime),
+        sa.column("updated_at", sa.DateTime),
     )
     contexts = sa.table(
         "knowledge_contexts",
@@ -111,6 +114,8 @@ def upgrade() -> None:
         sa.column("verification_status", sa.String),
         sa.column("confidence", sa.Float),
         sa.column("is_deleted", sa.Boolean),
+        sa.column("created_at", sa.DateTime),
+        sa.column("updated_at", sa.DateTime),
     )
     rows = bind.execute(
         sa.select(
@@ -131,6 +136,7 @@ def upgrade() -> None:
     }
     import uuid
 
+    now = datetime.now(timezone.utc)
     for row in rows:
         for domain in row.domains or []:
             name = str(domain).strip()
@@ -154,6 +160,8 @@ def upgrade() -> None:
                         verification_status=row.verification_status or "unverified",
                         confidence=float(row.confidence or 0.5),
                         is_deleted=False,
+                        created_at=now,
+                        updated_at=now,
                     )
                 )
                 existing[key] = {"id": knowledge_id, "count": 1}
@@ -178,6 +186,8 @@ def upgrade() -> None:
                     verification_status=row.verification_status or "unverified",
                     confidence=float(row.confidence or 0.5),
                     is_deleted=False,
+                    created_at=now,
+                    updated_at=now,
                 )
             )
 
