@@ -1,0 +1,7 @@
+Match each requirement against its scoped evidence and structured facts.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

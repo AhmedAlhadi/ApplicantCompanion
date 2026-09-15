@@ -1,0 +1,7 @@
+Create the application strategy for this application.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

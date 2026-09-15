@@ -21,6 +21,7 @@ export default function Settings() {
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [cvTheme, setCvTheme] = useState("minimal-ats");
   const [clTheme, setClTheme] = useState("minimal-ats");
+  const [atsRelevance, setAtsRelevance] = useState<"high" | "low">("high");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -30,6 +31,7 @@ export default function Settings() {
       setWeights(data.scoring_weights ?? {});
       setCvTheme(data.default_cv_template || "minimal-ats");
       setClTheme(data.default_cover_letter_template || "minimal-ats");
+      setAtsRelevance(data.ats_relevance === "low" ? "low" : "high");
     }
   }, [data]);
 
@@ -49,7 +51,7 @@ export default function Settings() {
     e.preventDefault();
     setError(null);
     try {
-      await api.put("/api/settings", { score_threshold: Number(threshold), scoring_weights: weights });
+      await api.put("/api/settings", { score_threshold: Number(threshold), scoring_weights: weights, ats_relevance: atsRelevance });
       setSaved(true);
       reload();
       setTimeout(() => setSaved(false), 2000);
@@ -110,6 +112,17 @@ export default function Settings() {
         <label>{t("settings.thresholdLabel", { pct: Math.round(threshold * 100) })}</label>
         <input type="range" min={0.5} max={0.95} step={0.01} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
         <p className="small muted">{t("settings.thresholdHint")}</p>
+
+        <h3 className="mt">{t("settings.atsRelevance")}</h3>
+        <div className="row">
+          <button type="button" className={atsRelevance === "high" ? "primary" : ""} onClick={() => setAtsRelevance("high")}>
+            {t("settings.atsHigh")}
+          </button>
+          <button type="button" className={atsRelevance === "low" ? "primary" : ""} onClick={() => setAtsRelevance("low")}>
+            {t("settings.atsLow")}
+          </button>
+        </div>
+        <p className="small muted">{t("settings.atsHint")}</p>
 
         <h3 className="mt">{t("settings.weights")}</h3>
         {Object.entries(weights).map(([key, value]) => (

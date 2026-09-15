@@ -495,7 +495,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
         <div className="stat-card"><div className="stat-value">{stats.projects}</div><div className="stat-label">Projects</div></div>
         <div className="stat-card"><div className="stat-value">{stats.skills}</div><div className="stat-label">Skills</div></div>
         <div className="stat-card"><div className="stat-value">{stats.knowledge}</div><div className="stat-label">{t("map.knowledge")}</div></div>
-        <div className="stat-card"><div className="stat-value">{stats.techs}</div><div className="stat-label">Technologies</div></div>
+        <div className="stat-card"><div className="stat-value">{stats.techs}</div><div className="stat-label">{t("map.technologies")}</div></div>
       </div>
 
       <div className="ck-graph-panel">

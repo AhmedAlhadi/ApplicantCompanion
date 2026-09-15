@@ -301,6 +301,7 @@ export interface UserSettings {
   content_language: AppLanguage;
   default_cv_template: string;
   default_cover_letter_template: string;
+  ats_relevance: "high" | "low";
 }
 
 export interface AgentExecution {
@@ -394,6 +395,8 @@ export interface OnboardingStatus {
     phone: string;
     location: string;
     links: Record<string, string>;
+    primary_profession?: string;
+    target_sectors?: string[];
   } | null;
 }
 
@@ -414,6 +417,8 @@ export interface CareerProfile {
   links: Record<string, string>;
   preferred_positioning: string;
   career_narratives: CareerNarrative[];
+  primary_profession: string;
+  target_sectors: string[];
 }
 
 export interface CareerExperience {
@@ -487,6 +492,7 @@ export interface CareerCertification {
   name: string;
   issuer: string;
   issue_date: string | null;
+  credential_type?: string;
   verification_status: string;
 }
 

@@ -61,7 +61,7 @@ def _coerce_skill_list(value: Any) -> list[dict[str, str]]:
         if isinstance(item, str):
             name = item.strip()
             if name:
-                out.append({"name": name, "category": "technical"})
+                out.append({"name": name, "category": "uncategorized"})
             continue
         if isinstance(item, BaseModel):
             dumped = item.model_dump()
@@ -70,7 +70,7 @@ def _coerce_skill_list(value: Any) -> list[dict[str, str]]:
                 out.append(
                     {
                         "name": name,
-                        "category": str(dumped.get("category") or "technical").strip() or "technical",
+                        "category": str(dumped.get("category") or "uncategorized").strip() or "uncategorized",
                     }
                 )
             continue
@@ -81,9 +81,9 @@ def _coerce_skill_list(value: Any) -> list[dict[str, str]]:
             name = name.strip()
             if not name:
                 continue
-            category = item.get("category") or "technical"
+            category = item.get("category") or "uncategorized"
             if not isinstance(category, str) or not category.strip():
-                category = "technical"
+                category = "uncategorized"
             out.append({"name": name, "category": category.strip()})
     return out
 
@@ -197,7 +197,7 @@ class ExtractedCertification(BaseModel):
 
 class ExtractedSkill(BaseModel):
     name: str = ""
-    category: str = "technical"
+    category: str = "uncategorized"
 
 
 class ExtractedLanguage(BaseModel):
@@ -435,6 +435,7 @@ class JDRequirement(BaseModel):
         category_aliases = {
             "skill": "technical_skill", "skills": "technical_skill",
             "technical": "technical_skill", "qualifications": "functional",
+            "skill_or_tool": "technical_skill", "tools": "technical_skill",
         }
         raw_category = str(data.get("category", "functional")).lower()
         category = category_aliases.get(raw_category, raw_category)
@@ -458,9 +459,9 @@ class JDRequirement(BaseModel):
 class JDKeyword(BaseModel):
     term: str
     classification: Literal[
-        "technical", "functional", "domain", "organizational",
-        "behavioral", "tools", "methodologies", "certifications",
-    ] = "technical"
+        "technical", "functional", "clinical", "domain", "organizational",
+        "behavioral", "tools", "methodologies", "certifications", "uncategorized",
+    ] = "uncategorized"
 
     @model_validator(mode="before")
     @classmethod
@@ -474,7 +475,7 @@ class JDKeyword(BaseModel):
             data["term"] = data.get("keyword") or data.get("name") or ""
         classification_aliases = {
             "technical_skill": "technical",
-            "skill": "technical",
+            "skill": "uncategorized",
             "methodology": "methodologies",
             "certification": "certifications",
             "tool": "tools",
@@ -486,7 +487,7 @@ class JDKeyword(BaseModel):
                 raw_classification,
             )
         if not data.get("classification"):
-            data["classification"] = "technical"
+            data["classification"] = "uncategorized"
         return data
 
 

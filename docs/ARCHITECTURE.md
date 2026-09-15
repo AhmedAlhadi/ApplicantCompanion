@@ -103,6 +103,9 @@ keyword re-rank → dedup → top-N evidence`.
 `requirement status → {MATCHED 1.0, PARTIALLY_MATCHED 0.6, TRANSFERABLE 0.5,
 NOT_MATCHED 0.0, UNKNOWN excluded}` → importance-weighted per category →
 weighted sum with configurable category weights (defaults from the spec).
+The `technical_skills` key is labeled “Skills & tools” in the product and
+accepts the alias `skills_and_tools`. It covers clinical techniques, trade
+methods, teaching methods, and software skills — not only ICT.
 The LLM produces only the narrative (strengths/gaps/risks). The threshold
 (default 80%) gates generation behind an explicit user decision — advisory,
 never a rejection (§21).

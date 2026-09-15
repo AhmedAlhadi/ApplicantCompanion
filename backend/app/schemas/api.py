@@ -62,6 +62,8 @@ class ProfileIn(BaseModel):
     links: dict = Field(default_factory=dict)
     preferred_positioning: str = ""
     career_narratives: list[dict] = Field(default_factory=list)
+    primary_profession: str = ""
+    target_sectors: list[str] = Field(default_factory=list)
 
 
 class ExperienceIn(BaseModel):
@@ -106,7 +108,7 @@ class ProjectIn(BaseModel):
 
 class SkillIn(BaseModel):
     name: str
-    category: str = "technical"
+    category: str = "uncategorized"
     proficiency: str = ""
     years_experience: float | None = None
     verification_status: str = "unverified"
@@ -129,6 +131,7 @@ class CertificationIn(BaseModel):
     issue_date: str | None = None
     expiry_date: str | None = None
     credential_id: str = ""
+    credential_type: str = ""
     url: str = ""
     verification_status: str = "unverified"
 
@@ -283,6 +286,7 @@ class SettingsUpdate(BaseModel):
     content_language: Literal["ar", "en"] | None = None
     default_cv_template: str | None = None
     default_cover_letter_template: str | None = None
+    ats_relevance: Literal["high", "low"] | None = None
 
 
 class ModelTestRequest(BaseModel):

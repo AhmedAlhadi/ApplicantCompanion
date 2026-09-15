@@ -29,6 +29,22 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "language_other": 0.05,
 }
 
+WEIGHT_ALIASES = {
+    "skills_and_tools": "technical_skills",
+    "skill_or_tool": "technical_skills",
+}
+
+
+def normalize_weights(weights: dict[str, float] | None) -> dict[str, float]:
+    raw = dict(weights or DEFAULT_WEIGHTS)
+    out: dict[str, float] = {}
+    for key, value in raw.items():
+        out[WEIGHT_ALIASES.get(key, key)] = value
+    for key, value in DEFAULT_WEIGHTS.items():
+        out.setdefault(key, value)
+    return out
+
+
 STATUS_SCORES = {
     "MATCHED": 1.0,
     "TRANSFERABLE": 0.5,
@@ -48,6 +64,10 @@ CATEGORY_MAP = {
     "certification": "education_certifications",
     "experience": "relevant_experience",
     "technical_skill": "technical_skills",
+    "skill_or_tool": "technical_skills",
+    "tool": "technical_skills",
+    "clinical": "technical_skills",
+    "methodology": "technical_skills",
     "functional": "mandatory_qualifications",
     "domain": "domain_knowledge",
     "language": "language_other",
@@ -117,7 +137,7 @@ def compute_score(
     weights: dict[str, float] | None = None,
     threshold: float = 0.80,
 ) -> dict:
-    weights = dict(weights or DEFAULT_WEIGHTS)
+    weights = normalize_weights(weights)
     match_by_req = {m.requirement_id: m for m in matches}
 
     buckets: dict[str, list[tuple[float, float]]] = {k: [] for k in weights}

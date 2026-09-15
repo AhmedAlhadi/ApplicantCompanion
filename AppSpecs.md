@@ -33,7 +33,7 @@ The application maintains a persistent Career Knowledge Base containing:
 - Projects
 - Achievements
 - Skills
-- Technical skills
+- Skills & tools
 - Domain expertise
 - Industry, process, and cross-functional knowledge acquired through work
 - Education
@@ -430,7 +430,7 @@ Mandatory requirements
 
 - Education
 - Years of experience
-- Technical skills
+- Skills & tools
 - Functional expertise
 - Languages
 - Certifications
@@ -687,7 +687,7 @@ Recommended categories:
 Category| Weight
 Mandatory qualifications| 25%
 Relevant experience| 20%
-Technical/functional skills| 15%
+Skills & tools| 15%
 Responsibilities match| 15%
 Domain knowledge| 10%
 Leadership/management| 5%

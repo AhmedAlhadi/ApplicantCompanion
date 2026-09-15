@@ -5,6 +5,7 @@ import { api, ApiError } from "../api/client";
 import type { AppDocument, Application, JobScore, Strategy, Template, UserSettings } from "../api/types";
 import { Empty, ErrorBox, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
+import { showAts } from "../lib/ats";
 import { useT } from "../lib/i18n";
 
 type ThresholdGate = {
@@ -238,7 +239,7 @@ export default function ApplicationDetail() {
         <h3>{t("application.documents")}</h3>
         {docs.data?.length ? (
           <table>
-            <thead><tr><th>{t("application.document")}</th><th>{t("application.template")}</th><th>{t("application.version")}</th><th>{t("application.validation")}</th><th>ATS</th><th></th></tr></thead>
+            <thead><tr><th>{t("application.document")}</th><th>{t("application.template")}</th><th>{t("application.version")}</th><th>{t("application.validation")}</th>{showAts(settings.data) && <th>{t("application.ats")}</th>}<th></th></tr></thead>
             <tbody>
               {docs.data.map((d) => (
                 <tr key={d.id}>
@@ -252,7 +253,7 @@ export default function ApplicationDetail() {
                         : <span className="badge unverified" title={(d.current_version.validation_results.issues ?? []).join("\n")}>{t("application.review")}</span>
                       : "—"}
                   </td>
-                  <td>{d.current_version?.ats_analysis?.ats_score != null ? `${Math.round((d.current_version.ats_analysis.ats_score as number) * 100)}%` : "—"}</td>
+                  {showAts(settings.data) && <td>{d.current_version?.ats_analysis?.ats_score != null ? `${Math.round((d.current_version.ats_analysis.ats_score as number) * 100)}%` : "—"}</td>}
                   <td><Link to={`/documents/${d.id}`}>{t("application.openEditor")}</Link></td>
                 </tr>
               ))}

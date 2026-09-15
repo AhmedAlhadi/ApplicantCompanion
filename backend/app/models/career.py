@@ -51,6 +51,8 @@ class CareerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     links: Mapped[dict] = mapped_column(JSON, default=dict)  # linkedin, portfolio, ...
     preferred_positioning: Mapped[str] = mapped_column(Text, default="")
     career_narratives: Mapped[list] = mapped_column(JSON, default=list)
+    primary_profession: Mapped[str] = mapped_column(String(255), default="")
+    target_sectors: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class CareerDocument(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
@@ -138,7 +140,7 @@ class Skill(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))  # original wording
     canonical_name: Mapped[str] = mapped_column(String(255), index=True)
-    category: Mapped[str] = mapped_column(String(64), default="technical")
+    category: Mapped[str] = mapped_column(String(64), default="uncategorized")
     proficiency: Mapped[str] = mapped_column(String(64), default="")
     years_experience: Mapped[float | None] = mapped_column(Float, nullable=True)
     synonyms: Mapped[list] = mapped_column(JSON, default=list)
@@ -171,6 +173,7 @@ class Certification(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     issue_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     expiry_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     credential_id: Mapped[str] = mapped_column(String(255), default="")
+    credential_type: Mapped[str] = mapped_column(String(64), default="")
     url: Mapped[str] = mapped_column(String(1000), default="")
     verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
 

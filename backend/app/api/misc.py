@@ -113,19 +113,20 @@ def dashboard_stats(db: Session = Depends(get_db), user: User = Depends(get_curr
 @router.get("/settings")
 def get_settings_endpoint(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..config import get_settings
-    from ..scoring.engine import DEFAULT_WEIGHTS
+    from ..scoring.engine import DEFAULT_WEIGHTS, normalize_weights
 
     from ..prompts.language import DEFAULT_LANGUAGE, normalize_language
 
     stored = all_user_settings(db, user.id)
     return {
         "score_threshold": stored.get("score_threshold", get_settings().score_threshold),
-        "scoring_weights": stored.get("scoring_weights", DEFAULT_WEIGHTS),
+        "scoring_weights": normalize_weights(stored.get("scoring_weights", DEFAULT_WEIGHTS)),
         "model_routing": stored.get("model_routing", routing_table()),
         "ui_language": normalize_language(stored.get("ui_language"), DEFAULT_LANGUAGE),
         "content_language": normalize_language(stored.get("content_language"), DEFAULT_LANGUAGE),
         "default_cv_template": stored.get("default_cv_template") or "minimal-ats",
         "default_cover_letter_template": stored.get("default_cover_letter_template") or "minimal-ats",
+        "ats_relevance": stored.get("ats_relevance") or "high",
     }
 
 
@@ -134,12 +135,17 @@ def update_settings(payload: SettingsUpdate, request: Request, db: Session = Dep
     if payload.score_threshold is not None:
         set_user_setting(db, user.id, "score_threshold", payload.score_threshold)
     if payload.scoring_weights is not None:
-        total = sum(payload.scoring_weights.values())
+        from ..scoring.engine import normalize_weights
+
+        weights = normalize_weights(payload.scoring_weights)
+        total = sum(weights.values())
         if abs(total - 1.0) > 0.01:
             raise HTTPException(422, f"Scoring weights must sum to 1.0 (got {total:.3f})")
-        if any(v < 0 for v in payload.scoring_weights.values()):
+        if any(v < 0 for v in weights.values()):
             raise HTTPException(422, "Scoring weights must be non-negative")
-        set_user_setting(db, user.id, "scoring_weights", payload.scoring_weights)
+        set_user_setting(db, user.id, "scoring_weights", weights)
+    if payload.ats_relevance is not None:
+        set_user_setting(db, user.id, "ats_relevance", payload.ats_relevance)
     if payload.model_routing is not None:
         set_user_setting(db, user.id, "model_routing", payload.model_routing)
     if payload.ui_language is not None:

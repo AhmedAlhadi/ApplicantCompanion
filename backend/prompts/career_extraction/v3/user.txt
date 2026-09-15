@@ -1,0 +1,17 @@
+Extract the career information from the following document.
+
+Capture skills AND the domain, industry, process, regulatory, product, stakeholder,
+and terminology knowledge the person acquired through their roles.
+
+Do not assume a technology profession. Classify each skill only when evidence
+supports a category; otherwise use uncategorized.
+
+Profession context: {profession_context}
+
+Document name: {document_name}
+
+<document>
+{document_text}
+</document>
+
+Return only the JSON object.

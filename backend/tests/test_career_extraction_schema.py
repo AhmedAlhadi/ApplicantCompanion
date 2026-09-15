@@ -14,7 +14,9 @@ def test_skills_accept_bare_strings_and_objects():
         }
     )
     assert [s.name for s in result.skills] == ["Python", "SQL", "FastAPI"]
-    assert all(s.category == "technical" for s in result.skills)
+    assert result.skills[0].category == "uncategorized"
+    assert result.skills[1].category == "technical"
+    assert result.skills[2].category == "technical"
 
 
 def test_achievements_accept_objects_and_strings():

@@ -89,7 +89,7 @@ Use these as feature cards or accordion sections.
 A persistent, structured record of your professional life — not a single uploaded file.
 
 - Profile, employment history, projects, achievements
-- Skills (technical, functional, domain, behavioral, tools, methodologies)
+- Skills (technical, functional, clinical, domain, behavioral, tools, methodologies — uncategorized until evidenced)
 - Professional knowledge gained on the job: industry, processes, terminology, regulations, products, and stakeholder environments — kept distinct from skills
 - Education, certifications, languages, publications
 - Leadership, management, and consulting experience
@@ -107,7 +107,7 @@ Paste a job description. Serah normalizes it into:
 - Position information (organization, title, grade, location, contract, deadline, reporting line)
 - Mandatory vs preferred requirements (education, experience, skills, languages, certifications, management, domain)
 - Responsibilities and competencies
-- Keywords classified by type (technical, functional, domain, organizational, behavioral, tools, methodologies, certifications)
+- Keywords classified by type (technical, functional, clinical, domain, organizational, behavioral, tools, methodologies, certifications, or uncategorized)
 - Requirement importance: Critical / High / Medium / Low — not every sentence in a JD is equal
 
 ### Organization and hiring-team intelligence
@@ -189,7 +189,8 @@ The letter is not a CV summary. It explains why this role, why this organization
 
 ### ATS analysis
 
-After generation, Serah reports:
+ATS analysis is optional. Hide ATS scores in Settings when the profession does not use applicant-tracking systems.
+
 
 - ATS compatibility score
 - Keyword coverage and missing important keywords
@@ -313,7 +314,8 @@ Useful for trust copy and FAQ:
 ## 7. Who it is for
 
 - Professionals who apply to several roles and need each package tailored
-- Candidates targeting UN, NGO, government, consulting, technology, or academic tracks (dedicated themes)
+- Nurses, teachers, skilled trades, sales, operations, finance, public-sector, and technology candidates — Serah is not a tech-only product
+- Candidates targeting UN, NGO, government, consulting, healthcare, education, or academic tracks (dedicated themes)
 - People who want an honest gap analysis before spending time on an application
 - Bilingual EN/AR job seekers
 - Anyone who has been burned by AI CVs that they could not defend in an interview

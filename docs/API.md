@@ -82,13 +82,17 @@ Plus:
 | GET | `/api/documents/{id}/evidence` | Traceability panels for cited evidence |
 | POST | `/api/documents/{id}/export?fmt=pdf|docx` | Export with template theme applied |
 
+ATS analysis is advisory. Users who work in professions that do not use
+applicant-tracking systems can hide ATS scores in Settings (`ats_relevance=low`).
+Documents remain scannable without forcing software-industry vocabulary.
+
 ## Platform
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/templates?document_type=cv` | Built-in themes (7 × CV + 7 × cover letter) |
 | GET | `/api/dashboard/stats` | Pipeline stats (§33) |
-| GET/PUT | `/api/settings` | Score threshold + configurable weights (§18-20) |
+| GET/PUT | `/api/settings` | Score threshold, configurable weights, optional ATS emphasis, templates (§18-20) |
 | GET | `/api/models` | Provider availability + task routing (§45) |
 | POST | `/api/models/test` | Connectivity test for a provider |
 | GET | `/api/prompts` | Prompt registry inventory (§37) |

@@ -37,6 +37,7 @@ from .knowledge import (
     sync_experience_domains,
     upsert_knowledge,
 )
+from .profile_context import profession_context_for
 from .storage import get_object_store
 
 logger = logging.getLogger(__name__)
@@ -164,7 +165,10 @@ class IngestionService:
             }
 
         result = CareerKnowledgeAgent().run(
-            ctx, document_text=document.extracted_text, document_name=document.filename
+            ctx,
+            document_text=document.extracted_text,
+            document_name=document.filename,
+            profession_context=profession_context_for(self.db, self.user.id),
         )
         auto_applied = {
             "experiences": 0,
@@ -214,7 +218,7 @@ class IngestionService:
                         category=(
                             entry.get("category", raw.category)
                             if entry
-                            else raw.category or "technical"
+                            else raw.category or "uncategorized"
                         ),
                         synonyms=aliases,
                         evidence_count=1,

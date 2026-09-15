@@ -46,6 +46,7 @@ from ..retrieval.pipeline import retrieve_evidence
 from ..schemas.agents import HiringContextResult, OrganizationResearchResult
 from ..scoring.engine import compute_score
 from ..services.deadlines import extract_application_deadline
+from ..services.profile_context import profession_context_for
 from ..services.research import extract_urls, gather_snippets
 from ..services.serializers import to_dict
 from .base import AgentContext, AgentError
@@ -174,7 +175,11 @@ class Orchestrator:
         # 1. Parse JD ──────────────────────────────────────────────────────
         self._stage(run, "ParseJD", "RUNNING")
         try:
-            analysis = JobAnalysisAgent().run(ctx, jd_text=job.raw_jd_text)
+            analysis = JobAnalysisAgent().run(
+                ctx,
+                jd_text=job.raw_jd_text,
+                profession_context=profession_context_for(self.db, self.user.id),
+            )
         except AgentError as exc:
             self._stage(run, "ParseJD", "FAILED", str(exc))
             run.status = "FAILED"
@@ -757,7 +762,9 @@ class Orchestrator:
         return float(get_user_setting(self.db, self.user.id, "score_threshold", get_settings().score_threshold))
 
     def _scoring_weights(self) -> dict:
-        from ..scoring.engine import DEFAULT_WEIGHTS
+        from ..scoring.engine import DEFAULT_WEIGHTS, normalize_weights
         from ..services.settings import get_user_setting
 
-        return get_user_setting(self.db, self.user.id, "scoring_weights", DEFAULT_WEIGHTS)
+        return normalize_weights(
+            get_user_setting(self.db, self.user.id, "scoring_weights", DEFAULT_WEIGHTS)
+        )

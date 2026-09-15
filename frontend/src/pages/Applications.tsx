@@ -1,7 +1,8 @@
 import { FileStack } from "lucide-react";
 import { api } from "../api/client";
-import type { Application } from "../api/types";
+import type { Application, UserSettings } from "../api/types";
 import { Empty, Link, useApi } from "../components/ui";
+import { showAts } from "../lib/ats";
 import { useT } from "../lib/i18n";
 
 const STATUSES = ["draft", "ready", "submitted", "interview", "rejected", "offer", "withdrawn"];
@@ -9,6 +10,8 @@ const STATUSES = ["draft", "ready", "submitted", "interview", "rejected", "offer
 export default function Applications() {
   const { t } = useT();
   const { data, loading, reload } = useApi<Application[]>(() => api.get("/api/applications"));
+  const settings = useApi<UserSettings>(() => api.get("/api/settings"));
+  const atsVisible = showAts(settings.data);
 
   const setStatus = async (id: string, status: string) => {
     await api.put(`/api/applications/${id}`, { status });
@@ -30,7 +33,7 @@ export default function Applications() {
                 <th>{t("applications.organization")}</th>
                 <th>{t("applications.deadline")}</th>
                 <th>{t("applications.fit")}</th>
-                <th>{t("applications.ats")}</th>
+                {atsVisible && <th>{t("applications.ats")}</th>}
                 <th>{t("applications.status")}</th>
                 <th>{t("applications.notes")}</th>
                 <th></th>
@@ -43,7 +46,7 @@ export default function Applications() {
                   <td>{a.job?.organization_name}</td>
                   <td className="muted">{a.job?.deadline || "—"}</td>
                   <td style={{ fontWeight: 700 }}>{a.fit_score != null ? `${Math.round(a.fit_score * 100)}%` : "—"}</td>
-                  <td>{a.ats_score_snapshot != null ? `${Math.round(a.ats_score_snapshot * 100)}%` : "—"}</td>
+                  {atsVisible && <td>{a.ats_score_snapshot != null ? `${Math.round(a.ats_score_snapshot * 100)}%` : "—"}</td>}
                   <td>
                     <select value={a.status} onChange={(e) => setStatus(a.id, e.target.value)} style={{ width: "auto", padding: "4px 8px" }}>
                       {STATUSES.map((s) => <option key={s} value={s}>{t(`status.${s}`)}</option>)}

@@ -55,7 +55,7 @@ const ENTITIES: EntityConfig[] = [
       { name: "location", label: "Location" },
       { name: "description", label: "Description", type: "textarea" },
       { name: "responsibilities", label: "Responsibilities (one per line)", type: "list" },
-      { name: "technologies", label: "Technologies (one per line)", type: "list" },
+      { name: "technologies", label: t("career.fields.technologies"), type: "list" },
       { name: "domains", label: "Domains (one per line)", type: "list" },
       { name: "leadership", label: "Leadership (one per line)", type: "list" },
       { name: "stakeholders", label: "Stakeholders (one per line)", type: "list" },
@@ -77,7 +77,7 @@ const ENTITIES: EntityConfig[] = [
       },
       { name: "role", label: "Your role" },
       { name: "description", label: "Description", type: "textarea" },
-      { name: "technologies", label: "Technologies (one per line)", type: "list" },
+      { name: "technologies", label: t("career.fields.technologies"), type: "list" },
       { name: "outcomes", label: "Outcomes (one per line)", type: "list" },
       { name: "urls", label: "URLs (one per line)", type: "list" },
     ],
@@ -131,7 +131,7 @@ const ENTITIES: EntityConfig[] = [
     subtitle: (r) => [r.category, r.proficiency, r.synonyms?.length ? `aka: ${r.synonyms.join(", ")}` : ""].filter(Boolean).join(" · "),
     fields: [
       { name: "name", label: "Skill", required: true },
-      { name: "category", label: "Category (technical/functional/domain/behavioral/tools/methodologies)" },
+      { name: "category", label: t("career.fields.category") },
       { name: "proficiency", label: "Proficiency" },
       { name: "years_experience", label: "Years of experience", type: "number" },
     ],
@@ -155,8 +155,9 @@ const ENTITIES: EntityConfig[] = [
       { name: "name", label: "Certification", required: true },
       { name: "issuer", label: "Issuer" },
       { name: "issue_date", label: "Issue date (YYYY-MM)" },
-      { name: "credential_id", label: "Credential ID" },
-      { name: "url", label: "URL" },
+      { name: "credential_id", label: t("career.fields.credential_id") },
+      { name: "credential_type", label: t("career.fields.credential_type") },
+      { name: "url", label: t("career.fields.url") },
     ],
   },
   {
@@ -405,12 +406,13 @@ function EntityTab({ config }: { config: EntityConfig }) {
 }
 
 function ProfileTab() {
+  const { t } = useT();
   const { data, reload, loading } = useApi<any>(() => api.get("/api/career/profile"));
   const [form, setForm] = useState<any | null>(null);
   const [saved, setSaved] = useState(false);
   const f = form ?? data ?? {};
-  if (loading) return <p className="muted">Loading…</p>;
-  const set = (k: string, v: string) => setForm({ ...f, [k]: v });
+  if (loading) return <p className="muted">{t("common.loading")}</p>;
+  const set = (k: string, v: any) => setForm({ ...f, [k]: v });
   const save = async (e: FormEvent) => {
     e.preventDefault();
     await api.put("/api/career/profile", {
@@ -418,33 +420,47 @@ function ProfileTab() {
       email: f.email ?? "", phone: f.phone ?? "", location: f.location ?? "",
       links: f.links ?? {}, preferred_positioning: f.preferred_positioning ?? "",
       career_narratives: f.career_narratives ?? [],
+      primary_profession: f.primary_profession ?? "",
+      target_sectors: String(f.target_sectors_text ?? (f.target_sectors || []).join("\n"))
+        .split("\n").map((s: string) => s.trim()).filter(Boolean),
     });
     setSaved(true);
     setForm(null);
     reload();
     setTimeout(() => setSaved(false), 2000);
   };
+  const sectorsText = f.target_sectors_text ?? (f.target_sectors || []).join("\n");
   return (
     <form className="panel" onSubmit={save}>
       <div className="form-row">
-        <div><label>Full name</label><input value={f.full_name ?? ""} onChange={(e) => set("full_name", e.target.value)} /></div>
-        <div><label>Headline</label><input value={f.headline ?? ""} onChange={(e) => set("headline", e.target.value)} /></div>
+        <div><label>{t("career.fullName")}</label><input value={f.full_name ?? ""} onChange={(e) => set("full_name", e.target.value)} /></div>
+        <div><label>{t("career.headline")}</label><input value={f.headline ?? ""} onChange={(e) => set("headline", e.target.value)} /></div>
       </div>
-      <label>Professional summary</label>
+      <label>{t("career.professionalSummary")}</label>
       <textarea value={f.summary ?? ""} onChange={(e) => set("summary", e.target.value)} />
       <div className="form-row">
-        <div><label>Email</label><input value={f.email ?? ""} onChange={(e) => set("email", e.target.value)} /></div>
-        <div><label>Phone</label><input value={f.phone ?? ""} onChange={(e) => set("phone", e.target.value)} /></div>
+        <div><label>{t("onboarding.email")}</label><input value={f.email ?? ""} onChange={(e) => set("email", e.target.value)} /></div>
+        <div><label>{t("onboarding.phone")}</label><input value={f.phone ?? ""} onChange={(e) => set("phone", e.target.value)} /></div>
       </div>
       <div className="form-row">
-        <div><label>Location</label><input value={f.location ?? ""} onChange={(e) => set("location", e.target.value)} /></div>
-        <div><label>LinkedIn URL</label><input value={f.links?.linkedin ?? ""} onChange={(e) => set("links", { ...(f.links ?? {}), linkedin: e.target.value })} /></div>
+        <div><label>{t("onboarding.location")}</label><input value={f.location ?? ""} onChange={(e) => set("location", e.target.value)} /></div>
+        <div><label>{t("career.linkedinUrl")}</label><input value={f.links?.linkedin ?? ""} onChange={(e) => set("links", { ...(f.links ?? {}), linkedin: e.target.value })} /></div>
       </div>
-      <label>Preferred career positioning</label>
+      <div className="form-row">
+        <div>
+          <label>{t("career.profession")}</label>
+          <input value={f.primary_profession ?? ""} onChange={(e) => set("primary_profession", e.target.value)} placeholder={t("onboarding.professionPh")} />
+        </div>
+        <div>
+          <label>{t("career.sectors")}</label>
+          <textarea value={sectorsText} onChange={(e) => set("target_sectors_text", e.target.value)} placeholder={t("onboarding.sectorsPh")} rows={3} />
+        </div>
+      </div>
+      <label>{t("career.preferredPositioning")}</label>
       <textarea value={f.preferred_positioning ?? ""} onChange={(e) => set("preferred_positioning", e.target.value)} />
       <div className="row mt">
-        <button className="primary">Save profile</button>
-        {saved && <span className="badge verified">Saved</span>}
+        <button className="primary">{t("career.saveProfile")}</button>
+        {saved && <span className="badge verified">{t("common.saved")}</span>}
       </div>
     </form>
   );
@@ -470,7 +486,7 @@ function proposalDetails(p: ReconciliationProposal): string {
     for (const r of (payload.responsibilities as string[]) || []) lines.push(`• ${r}`);
     for (const a of (payload.achievements as string[]) || []) lines.push(`★ ${a}`);
     const tech = (payload.technologies as string[]) || [];
-    if (tech.length) lines.push(`Tech: ${tech.join(", ")}`);
+    if (tech.length) lines.push(t("career.toolsLabel", { list: tech.join(", ") }));
   } else if (p.entity_type === "project") {
     if (payload.description) lines.push(String(payload.description));
     if (payload.role) lines.push(`Role: ${payload.role}`);

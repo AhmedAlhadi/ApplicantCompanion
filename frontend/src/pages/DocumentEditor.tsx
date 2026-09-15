@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download, History, Pencil } from "lucide-react";
 import { api, downloadFile } from "../api/client";
-import type { AppDocument, CVContent, CoverLetterContent, Template } from "../api/types";
+import type { AppDocument, CVContent, CoverLetterContent, Template, UserSettings } from "../api/types";
 import { Empty, ErrorBox, Link, Spinner, useApi } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
+import { showAts } from "../lib/ats";
 import { mergeEvidenceIds, stripInlineEvidence } from "../lib/evidenceText";
 import { useT } from "../lib/i18n";
 
@@ -44,6 +45,7 @@ export default function DocumentEditor() {
   const { id } = useParams<{ id: string }>();
   const doc = useApi<AppDocument>(() => api.get(`/api/documents/${id}`), [id]);
   const templates = useApi<Template[]>(() => api.get("/api/templates"));
+  const settings = useApi<UserSettings>(() => api.get("/api/settings"));
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -234,13 +236,13 @@ export default function DocumentEditor() {
             </div>
           )}
 
-          {ats?.ats_score !== undefined && (
+          {showAts(settings.data) && ats?.ats_score !== undefined && (
             <div className="panel">
-              <h3>ATS Analysis (§25)</h3>
-              <div className="score-row"><span className="name">ATS Compatibility</span><div className="score-bar"><div style={{ width: `${(ats.ats_score ?? 0) * 100}%` }} /></div><span className="pct">{Math.round((ats.ats_score ?? 0) * 100)}%</span></div>
-              <div className="score-row"><span className="name">Keyword Coverage</span><div className="score-bar"><div style={{ width: `${(ats.keyword_coverage ?? 0) * 100}%` }} /></div><span className="pct">{Math.round((ats.keyword_coverage ?? 0) * 100)}%</span></div>
-              <div className="score-row"><span className="name">Requirement Coverage</span><div className="score-bar"><div style={{ width: `${(ats.requirement_coverage ?? 0) * 100}%` }} /></div><span className="pct">{Math.round((ats.requirement_coverage ?? 0) * 100)}%</span></div>
-              {!!ats.missing_keywords?.length && <p className="small muted mt">Missing keywords: {ats.missing_keywords.slice(0, 8).join(", ")}</p>}
+              <h3>{t("editor.atsAnalysis")}</h3>
+              <div className="score-row"><span className="name">{t("editor.atsCompat")}</span><div className="score-bar"><div style={{ width: `${(ats.ats_score ?? 0) * 100}%` }} /></div><span className="pct">{Math.round((ats.ats_score ?? 0) * 100)}%</span></div>
+              <div className="score-row"><span className="name">{t("editor.keywordCoverage")}</span><div className="score-bar"><div style={{ width: `${(ats.keyword_coverage ?? 0) * 100}%` }} /></div><span className="pct">{Math.round((ats.keyword_coverage ?? 0) * 100)}%</span></div>
+              <div className="score-row"><span className="name">{t("editor.reqCoverageScore")}</span><div className="score-bar"><div style={{ width: `${(ats.requirement_coverage ?? 0) * 100}%` }} /></div><span className="pct">{Math.round((ats.requirement_coverage ?? 0) * 100)}%</span></div>
+              {!!ats.missing_keywords?.length && <p className="small muted mt">{t("editor.missingKw", { list: ats.missing_keywords.slice(0, 8).join(", ") })}</p>}
               {!!ats.keyword_overuse_warnings?.length && <p className="small" style={{ color: "var(--warn)" }}>{ats.keyword_overuse_warnings.join("; ")}</p>}
             </div>
           )}

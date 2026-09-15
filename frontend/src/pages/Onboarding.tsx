@@ -468,6 +468,8 @@ function ProfileStep({
     phone: initial?.phone || "",
     location: initial?.location || "",
     linkedin: initial?.links?.linkedin || "",
+    primary_profession: initial?.primary_profession || "",
+    target_sectors: (initial?.target_sectors || []).join("\n"),
   });
   const extras = useRef({ preferred_positioning: "", career_narratives: [] as CareerProfile["career_narratives"] });
   const [busy, setBusy] = useState(false);
@@ -489,6 +491,8 @@ function ProfileStep({
         phone: profile.phone || prev.phone,
         location: profile.location || prev.location,
         linkedin: profile.links?.linkedin || prev.linkedin,
+        primary_profession: profile.primary_profession || prev.primary_profession,
+        target_sectors: (profile.target_sectors || []).join("\n") || prev.target_sectors,
       }));
     }).catch(() => undefined);
     return () => {
@@ -517,6 +521,8 @@ function ProfileStep({
         links: { ...(initial?.links || {}), linkedin: form.linkedin },
         preferred_positioning: extras.current.preferred_positioning,
         career_narratives: extras.current.career_narratives,
+        primary_profession: form.primary_profession.trim(),
+        target_sectors: form.target_sectors.split("\n").map((s) => s.trim()).filter(Boolean),
       });
       await onDone();
     } catch (err) {
@@ -562,6 +568,14 @@ function ProfileStep({
           <input value={form.linkedin} onChange={(e) => set("linkedin", e.target.value)} />
         </div>
       </div>
+      <div className="form-row">
+        <div>
+          <label>{t("onboarding.profession")}</label>
+          <input value={form.primary_profession} onChange={(e) => set("primary_profession", e.target.value)} placeholder={t("onboarding.professionPh")} />
+        </div>
+      </div>
+      <label>{t("onboarding.sectors")}</label>
+      <textarea value={form.target_sectors} onChange={(e) => set("target_sectors", e.target.value)} placeholder={t("onboarding.sectorsPh")} rows={3} />
       <ErrorBox error={error} />
       <button className="primary mt" disabled={busy}>
         {busy ? <><Spinner /> {t("common.saving")}</> : <>{t("common.continue")} <ArrowRight aria-hidden /></>}

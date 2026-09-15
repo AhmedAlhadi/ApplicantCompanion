@@ -1,7 +1,8 @@
 import { Briefcase, CalendarDays, FileStack, Gauge, ShieldCheck } from "lucide-react";
 import { api } from "../api/client";
-import type { Application, DashboardStats } from "../api/types";
+import type { Application, DashboardStats, UserSettings } from "../api/types";
 import { Empty, Link, useApi } from "../components/ui";
+import { showAts } from "../lib/ats";
 import { useT } from "../lib/i18n";
 
 const STATUS_ORDER = ["draft", "ready", "submitted", "interview", "rejected", "offer", "withdrawn"];
@@ -10,6 +11,8 @@ export default function Dashboard() {
   const { t } = useT();
   const stats = useApi<DashboardStats>(() => api.get("/api/dashboard/stats"));
   const apps = useApi<Application[]>(() => api.get("/api/applications"));
+  const settings = useApi<UserSettings>(() => api.get("/api/settings"));
+  const atsVisible = showAts(settings.data);
 
   if (stats.loading) {
     return (
@@ -49,6 +52,7 @@ export default function Dashboard() {
           </div>
           <div className="stat-label">{t("dashboard.avgFit")}</div>
         </div>
+        {atsVisible && (
         <div className="stat-card">
           <div className="stat-head">
             <div className="stat-value">{Math.round((s?.average_ats ?? 0) * 100)}%</div>
@@ -56,6 +60,7 @@ export default function Dashboard() {
           </div>
           <div className="stat-label">{t("dashboard.avgAts")}</div>
         </div>
+        )}
         <div className="stat-card">
           <div className="stat-head">
             <div className="stat-value">{s?.applications_this_month ?? 0}</div>
@@ -108,7 +113,7 @@ export default function Dashboard() {
                 <th>{t("dashboard.position")}</th>
                 <th>{t("dashboard.organization")}</th>
                 <th>{t("dashboard.fit")}</th>
-                <th>{t("dashboard.ats")}</th>
+                {atsVisible && <th>{t("dashboard.ats")}</th>}
                 <th>{t("dashboard.status")}</th>
               </tr>
             </thead>
@@ -118,7 +123,7 @@ export default function Dashboard() {
                   <td><Link to={`/applications/${a.id}`}>{a.job?.position_title || t("common.untitled")}</Link></td>
                   <td>{a.job?.organization_name}</td>
                   <td>{a.fit_score != null ? `${Math.round(a.fit_score * 100)}%` : "—"}</td>
-                  <td>{a.ats_score_snapshot != null ? `${Math.round(a.ats_score_snapshot * 100)}%` : "—"}</td>
+                  {atsVisible && <td>{a.ats_score_snapshot != null ? `${Math.round(a.ats_score_snapshot * 100)}%` : "—"}</td>}
                   <td><span className={`badge ${a.status}`}>{t(`status.${a.status}`)}</span></td>
                 </tr>
               ))}

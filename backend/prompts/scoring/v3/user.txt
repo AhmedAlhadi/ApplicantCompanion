@@ -1,0 +1,10 @@
+Produce the scoring narrative for this analysis.
+
+Keep skill matches distinct from domain, industry, and process knowledge.
+The skills-and-tools category is not limited to information technology.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

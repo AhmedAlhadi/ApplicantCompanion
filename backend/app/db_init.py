@@ -71,6 +71,24 @@ def _ensure_additive_columns() -> None:
         if "coverage" not in score_cols:
             statements.append("ALTER TABLE job_scores ADD COLUMN coverage FLOAT NOT NULL DEFAULT 1.0")
 
+    profile_cols = _table_columns(insp, "career_profiles")
+    if profile_cols:
+        if "primary_profession" not in profile_cols:
+            statements.append(
+                "ALTER TABLE career_profiles ADD COLUMN primary_profession VARCHAR(255) NOT NULL DEFAULT ''"
+            )
+        if "target_sectors" not in profile_cols:
+            statements.append(
+                "ALTER TABLE career_profiles ADD COLUMN target_sectors "
+                f"JSON NOT NULL DEFAULT {_json_default('[]')}"
+            )
+
+    cert_cols = _table_columns(insp, "certifications")
+    if cert_cols and "credential_type" not in cert_cols:
+        statements.append(
+            "ALTER TABLE certifications ADD COLUMN credential_type VARCHAR(64) NOT NULL DEFAULT ''"
+        )
+
     user_cols = _table_columns(insp, "users")
     if user_cols:
         if "google_sub" not in user_cols:

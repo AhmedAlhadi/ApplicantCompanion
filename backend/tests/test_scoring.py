@@ -159,3 +159,13 @@ def test_weights_are_configurable():
     tech_heavy = compute_score(reqs, matches, weights={**DEFAULT_WEIGHTS, "technical_skills": 0.9, "education_certifications": 0.1})
     edu_heavy = compute_score(reqs, matches, weights={**DEFAULT_WEIGHTS, "technical_skills": 0.1, "education_certifications": 0.9})
     assert edu_heavy["overall_score"] > tech_heavy["overall_score"]
+
+
+def test_skills_and_tools_weight_alias():
+    reqs = [_req("IV therapy", "skill_or_tool", importance="CRITICAL")]
+    matches = [_match(reqs[0], "MATCHED")]
+    aliased = compute_score(reqs, matches, weights={"skills_and_tools": 1.0})
+    canonical = compute_score(reqs, matches, weights={"technical_skills": 1.0})
+    assert aliased["overall_score"] == canonical["overall_score"] == 1.0
+    assert "technical_skills" in aliased["category_scores"]
+

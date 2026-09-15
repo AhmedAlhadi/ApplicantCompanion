@@ -1,0 +1,7 @@
+Normalize and consolidate the following raw items:
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

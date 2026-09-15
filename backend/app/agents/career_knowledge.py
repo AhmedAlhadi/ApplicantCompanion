@@ -14,9 +14,13 @@ class CareerKnowledgeAgent(BaseAgent):
     prompt_name = "career_extraction"
     output_model = CareerExtractionResult
 
-    def build_user_message(self, *, document_text: str, document_name: str = "", **_) -> str:
+    def build_user_message(self, *, document_text: str, document_name: str = "", profession_context: str = "", **_) -> str:
         safe_text = sanitize_untrusted(document_text)
-        return self.prompt.render_user(document_text=safe_text, document_name=document_name)
+        return self.prompt.render_user(
+            document_text=safe_text,
+            document_name=document_name,
+            profession_context=profession_context or "none provided",
+        )
 
 
 class CareerNormalizationAgent(BaseAgent):

@@ -113,6 +113,8 @@ def _status_payload(db: Session, user: User) -> dict:
                 "phone": profile.phone,
                 "location": profile.location,
                 "links": profile.links or {},
+                "primary_profession": profile.primary_profession or "",
+                "target_sectors": profile.target_sectors or [],
             }
             if profile
             else None

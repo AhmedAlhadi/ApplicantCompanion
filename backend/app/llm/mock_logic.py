@@ -100,9 +100,68 @@ DOMAIN_TERMS = {
     "customs", "saas", "subscription", "billing", "revenue operations",
     "revops", "accounts payable", "accounts receivable", "revenue recognition",
     "customer success", "clinical", "pedagogy", "apprenticeship",
+    "nursing", "patient care", "acute care", "primary care", "curriculum",
+    "classroom", "safeguarding", "electrical", "construction", "hvac",
+    "sales", "operations", "retail", "hospitality", "manufacturing",
 }
 
-# Related-term groups for TRANSFERABLE matching (§17)
+CLINICAL_TERMS = {
+    "patient care", "vital signs", "medication administration", "wound care",
+    "triage", "electronic health record", "ehr", "emr", "charting", "icu",
+    "nursing", "clinical assessment", "infection control", "iv therapy",
+}
+
+EDUCATION_TERMS = {
+    "lesson planning", "classroom management", "curriculum", "formative assessment",
+    "summative assessment", "iep", "differentiated instruction", "pedagogy",
+    "safeguarding", "parent communication",
+}
+
+TRADE_TERMS = {
+    "conduit", "panel", "lockout", "tagout", "nec", "wiring", "troubleshooting",
+    "blueprint", "schematic", "voltage", "grounding", "apprenticeship",
+}
+
+SALES_OPS_TERMS = {
+    "pipeline", "quota", "account management", "crm", "forecasting",
+    "territory", "order management", "inventory", "kpis", "customer onboarding",
+}
+
+FUNCTIONAL_TERMS = {
+    "budgeting", "scheduling", "reporting", "quality assurance", "training",
+    "policy", "compliance", "operations", "coordination",
+}
+
+
+def _skill_category(name: str) -> str:
+    low = (name or "").strip().lower()
+    if not low:
+        return "uncategorized"
+    if low in LANGUAGES:
+        return "language"
+    if low in CERT_TERMS:
+        return "certifications"
+    if low in METHODOLOGIES:
+        return "methodology"
+    if low in BEHAVIORAL or "leadership" in low:
+        return "leadership" if "lead" in low or "mentor" in low else "behavioral"
+    if low in TECH_LEXICON:
+        return "technical"
+    if any(term in low for term in CLINICAL_TERMS) or low in CLINICAL_TERMS:
+        return "clinical"
+    if any(term in low for term in EDUCATION_TERMS) or low in EDUCATION_TERMS:
+        return "functional"
+    if any(term in low for term in TRADE_TERMS) or low in TRADE_TERMS:
+        return "tools"
+    if any(term in low for term in SALES_OPS_TERMS) or low in SALES_OPS_TERMS:
+        return "functional"
+    if low in FUNCTIONAL_TERMS:
+        return "functional"
+    if low in DOMAIN_TERMS or any(term in low for term in DOMAIN_TERMS if " " in term or len(term) > 4):
+        return "domain"
+    return "uncategorized"
+
+
 RELATED_GROUPS = [
     {"data architecture", "data platform", "data engineering", "database",
      "information architecture", "data warehouse", "etl", "data modeling"},
@@ -120,6 +179,12 @@ RELATED_GROUPS = [
      "last-mile", "tms", "wms"},
     {"saas", "subscription", "billing", "revenue operations", "revops",
      "accounts payable", "accounts receivable", "finance"},
+    {"nursing", "patient care", "clinical", "vital signs", "triage",
+     "infection control"},
+    {"teaching", "curriculum", "lesson planning", "classroom management",
+     "pedagogy", "formative assessment"},
+    {"electrical", "wiring", "conduit", "lockout", "nec", "troubleshooting"},
+    {"sales", "pipeline", "account management", "quota", "crm", "forecasting"},
 ]
 
 
@@ -388,15 +453,7 @@ def mock_career_extraction(user_message: str) -> dict:
             for item in re.split(r"[,;•\n]", stripped):
                 item = item.strip(" -•*")
                 if item and len(item) < 60:
-                    cat = "technical"
-                    low = item.lower()
-                    if low in METHODOLOGIES:
-                        cat = "methodologies"
-                    elif low in BEHAVIORAL:
-                        cat = "behavioral"
-                    elif low in LANGUAGES:
-                        cat = "language"
-                    skills.append({"name": item, "category": cat})
+                    skills.append({"name": item, "category": _skill_category(item)})
             continue
 
         if section == "education":
@@ -552,7 +609,7 @@ def mock_career_normalization(user_message: str) -> dict:
             continue
         key = _norm_key(name)
         groups.setdefault(key, []).append(name)
-        categories.setdefault(key, item.get("category", "technical"))
+        categories.setdefault(key, item.get("category") or _skill_category(name) or "uncategorized")
     canonical = []
     for key, names in sorted(groups.items()):
         # canonical = the most frequent, then the shortest clean form
@@ -766,7 +823,7 @@ def _importance(text: str, req_type: str, title_tokens: set[str]) -> str:
 
 def _req_keywords(text: str) -> list[str]:
     low = text.lower()
-    found = [t for t in sorted(TECH_LEXICON | METHODOLOGIES | CERT_TERMS) if t in low]
+    found = [t for t in sorted(TECH_LEXICON | METHODOLOGIES | CERT_TERMS | CLINICAL_TERMS | EDUCATION_TERMS | TRADE_TERMS | SALES_OPS_TERMS) if t in low]
     return found[:8]
 
 
@@ -1034,7 +1091,7 @@ def mock_jd_analysis(user_message: str) -> dict:
     # classified keywords
     for term in sorted(TECH_LEXICON):
         if term in low_jd:
-            keyword_map[term] = "tools" if " " not in term and "." in term else "technical"
+            keyword_map[term] = "technical"
     for term in sorted(METHODOLOGIES):
         if term in low_jd:
             keyword_map[term] = "methodologies"
@@ -1043,6 +1100,9 @@ def mock_jd_analysis(user_message: str) -> dict:
             keyword_map[term] = "certifications"
     for term in competencies:
         keyword_map.setdefault(term, "behavioral")
+    for term in sorted(CLINICAL_TERMS | EDUCATION_TERMS | TRADE_TERMS | SALES_OPS_TERMS):
+        if term in low_jd:
+            keyword_map.setdefault(term, _skill_category(term))
     for term in sorted(DOMAIN_TERMS):
         if re.search(rf"\b{re.escape(term)}\b", low_jd):
             keyword_map.setdefault(term, "domain")
