@@ -1,6 +1,6 @@
 """CareerExtractionResult accepts common LLM shape drift."""
 
-from app.schemas.agents import CareerExtractionResult, ExtractedSkill
+from app.schemas.agents import CareerExtractionResult, ExtractedEducation, ExtractedSkill
 
 
 def test_skills_accept_bare_strings_and_objects():
@@ -74,3 +74,34 @@ def test_professional_knowledge_accepts_strings_and_objects():
     assert [item.name for item in result.professional_knowledge] == ["logistics", "subscription billing"]
     assert result.professional_knowledge[1].kind == "process"
     assert result.experiences[0].professional_knowledge[0].name == "warehousing"
+
+
+def test_extracted_dates_normalize_month_names():
+    result = CareerExtractionResult.model_validate(
+        {
+            "education": [
+                {
+                    "institution": "Lebanese International University",
+                    "degree": "BSC",
+                    "field_of_study": "INFORMATION TECHNOLOGY",
+                    "start_date": "AUGUST 2013",
+                    "end_date": "Present",
+                }
+            ],
+            "experiences": [
+                {
+                    "organization": "Acme",
+                    "job_title": "Engineer",
+                    "start_date": "January 2021",
+                    "end_date": "current",
+                }
+            ],
+            "certifications": [{"name": "AWS", "issue_date": "June 2020"}],
+        }
+    )
+    assert result.education[0].start_date == "2013-08"
+    assert result.education[0].end_date == ""
+    assert result.experiences[0].start_date == "2021-01"
+    assert result.experiences[0].end_date == ""
+    assert result.certifications[0].issue_date == "2020-06"
+    assert len(ExtractedEducation.model_validate({"start_date": "AUGUST 2013"}).start_date) <= 10

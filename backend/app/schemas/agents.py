@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..dates import career_date_or_empty
 from ..evidence_citations import sanitize_prose_field
 
 # ── Career knowledge extraction (§6) ─────────────────────────────────────────
@@ -180,6 +181,11 @@ class ExtractedExperience(BaseModel):
     def _normalize_knowledge(cls, value: Any) -> list[dict[str, Any]]:
         return _coerce_knowledge_list(value)
 
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def _normalize_dates(cls, value: Any) -> str:
+        return career_date_or_empty(value)
+
 
 class ExtractedEducation(BaseModel):
     institution: str = ""
@@ -188,11 +194,21 @@ class ExtractedEducation(BaseModel):
     start_date: str = ""
     end_date: str = ""
 
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def _normalize_dates(cls, value: Any) -> str:
+        return career_date_or_empty(value)
+
 
 class ExtractedCertification(BaseModel):
     name: str = ""
     issuer: str = ""
     issue_date: str = ""
+
+    @field_validator("issue_date", mode="before")
+    @classmethod
+    def _normalize_dates(cls, value: Any) -> str:
+        return career_date_or_empty(value)
 
 
 class ExtractedSkill(BaseModel):

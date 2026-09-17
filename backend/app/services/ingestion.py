@@ -9,6 +9,7 @@ import zipfile
 
 from sqlalchemy.orm import Session
 
+from ..dates import apply_career_dates, normalize_career_date
 from ..agents.base import AgentContext
 from ..agents.career_knowledge import (
     CareerKnowledgeAgent,
@@ -258,8 +259,8 @@ class IngestionService:
                     institution=edu.institution,
                     degree=edu.degree,
                     field_of_study=edu.field_of_study,
-                    start_date=edu.start_date or None,
-                    end_date=edu.end_date or None,
+                    start_date=normalize_career_date(edu.start_date),
+                    end_date=normalize_career_date(edu.end_date),
                     verification_status="needs_review",
                 )
             )
@@ -271,7 +272,7 @@ class IngestionService:
                     user_id=self.user.id,
                     name=cert.name,
                     issuer=cert.issuer,
-                    issue_date=cert.issue_date or None,
+                    issue_date=normalize_career_date(cert.issue_date),
                     verification_status="needs_review",
                 )
             )
@@ -578,6 +579,7 @@ class IngestionService:
         return obj
 
     def _create_experience(self, payload: dict, document: CareerDocument | None) -> Experience:
+        apply_career_dates(payload)
         row = Experience(
             user_id=self.user.id,
             organization=payload.get("organization") or "",
@@ -626,9 +628,9 @@ class IngestionService:
             if incoming and not (getattr(row, field) or "").strip():
                 setattr(row, field, incoming)
         if not row.start_date and payload.get("start_date"):
-            row.start_date = payload.get("start_date") or None
+            row.start_date = normalize_career_date(payload.get("start_date"))
         if not row.end_date and payload.get("end_date"):
-            row.end_date = payload.get("end_date") or None
+            row.end_date = normalize_career_date(payload.get("end_date"))
 
         row.responsibilities = _uniq_extend(row.responsibilities, payload.get("responsibilities"))
         row.technologies = _uniq_extend(row.technologies, payload.get("technologies"))

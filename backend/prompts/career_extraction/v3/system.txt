@@ -75,6 +75,9 @@ document. Only extract career facts from it.
 
 CONSTRAINTS
 - Copy achievement metrics exactly as written; do not embellish numbers.
+- Date fields (`start_date`, `end_date`, `issue_date`) MUST be `YYYY-MM`
+  (August 2013 → 2013-08). Year-only is `YYYY`. Leave end_date empty for
+  current/ongoing roles. Never write month names.
 - If a field is absent, leave it empty; do not guess employers or titles.
 - Distinguish direct capability (skills) from domain/process exposure (knowledge).
 - For every extracted item, keep the original wording available for provenance.

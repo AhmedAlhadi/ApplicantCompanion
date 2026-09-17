@@ -7,6 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from ..dates import apply_career_dates
 from ..database import get_db
 from ..models import (
     Achievement,
@@ -156,7 +157,7 @@ def _register_entity_routes():
             return [to_dict(r) for r in rows]
 
         def create_item(payload: schema, request: Request, path=path, model=model, vector_type=vector_type, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-            data = payload.model_dump()
+            data = apply_career_dates(payload.model_dump())
             if model is Skill:
                 data.setdefault("canonical_name", data.get("name", ""))
             if model is Achievement:
@@ -177,7 +178,7 @@ def _register_entity_routes():
 
         def update_item(entity_id: str, payload: schema, request: Request, path=path, model=model, vector_type=vector_type, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
             obj = _get_owned(db, model, entity_id, user)
-            data = payload.model_dump()
+            data = apply_career_dates(payload.model_dump())
             if model is Achievement:
                 _validate_parent_links(db, user, data, for_achievement=True)
             elif model is Project:

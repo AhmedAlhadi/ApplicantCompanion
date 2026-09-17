@@ -91,9 +91,12 @@ Documents remain scannable without forcing software-industry vocabulary.
 | POST | `/api/coach/conversations/{id}/messages` | Ask a grounded question (stricter rate limit) |
 | POST | `/api/coach/conversations/{id}/messages/stream` | Same answer as SSE (`data:` JSON then `[DONE]`) |
 
-Coach answers retrieve only the signed-in user's top evidence. Citation IDs
-are resolved server-side from that set. Message bodies are not written to the
-ordinary audit log.
+Coach answers ground on the signed-in user's top retrieved evidence plus a
+deterministic context bundle: knowledge-base aggregates (counts, top skills,
+experiences, education, certifications, languages), the job's computed
+match/score analysis, the application strategy, and excerpts of current
+CV/cover-letter versions. Citation IDs are resolved server-side from the
+retrieved set only. Message bodies are not written to the ordinary audit log.
 
 ## Platform
 

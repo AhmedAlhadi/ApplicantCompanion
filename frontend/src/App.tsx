@@ -18,7 +18,17 @@ import Jobs from "./pages/Jobs";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
+import CoachWidget from "./components/coach/CoachWidget";
 import { setContentLanguage, setUiLanguage } from "./lib/i18n";
+
+function AuthenticatedShell({ user }: { user: User }) {
+  return (
+    <>
+      <Layout user={user} />
+      <CoachWidget />
+    </>
+  );
+}
 
 export default function App() {
   const token = getToken();
@@ -85,7 +95,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={<Navigate to="/" replace />} />
-        <Route element={<Layout user={me.data} />}>
+        <Route element={<AuthenticatedShell user={me.data} />}>
           <Route index element={<Dashboard />} />
           <Route path="/career" element={<CareerKnowledge />} />
           <Route path="/jobs" element={<Jobs />} />

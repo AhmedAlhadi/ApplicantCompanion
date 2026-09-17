@@ -14,6 +14,7 @@ import type {
 } from "../api/types";
 import { CareerOverview, type CareerTabKey } from "../components/CareerMap";
 import { ExperienceRoleCard } from "../components/ExperienceRoleCards";
+import { openCoachWidget } from "../components/coach/CoachWidget";
 import { Empty, ErrorBox, Link, useApi } from "../components/ui";
 import { t, useT } from "../lib/i18n";
 
@@ -1110,7 +1111,9 @@ export default function CareerKnowledge() {
   return (
     <>
       <h1 className="page-title">{t("career.title")}</h1>
-      <p className="page-sub">{t("career.sub")} <Link to="/coach">{t("coach.askAboutCareer")}</Link></p>
+      <p className="page-sub">{t("career.sub")}{" "}
+        <a href="/coach" onClick={(e) => { e.preventDefault(); openCoachWidget(); }}>{t("coach.askAboutCareer")}</a>
+      </p>
       {!!pendingCount.data?.length && tab !== "pending" && (
         <div className="alert warn">
           {pendingCount.data.length === 1 ? t("career.pendingAlert", { n: pendingCount.data.length }) : t("career.pendingAlertPlural", { n: pendingCount.data.length })}{" "}

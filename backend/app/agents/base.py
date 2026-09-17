@@ -47,11 +47,22 @@ class BaseAgent:
 
     def __init__(self, prompt_version: str | None = None):
         self.prompt = load_prompt(self.prompt_name, prompt_version) if self.prompt_name else None
+        # The AgentExecution row produced by the most recent run() on THIS
+        # instance. Callers that need token usage/latency must read this
+        # instead of querying "latest execution by agent name" (racy).
+        self.last_execution: AgentExecution | None = None
 
     # -- to implement -----------------------------------------------------
 
     def build_user_message(self, **kwargs) -> str:
         raise NotImplementedError
+
+    def resolve_output_language(self, ctx: AgentContext, **kwargs) -> str:
+        """Default: generated-document language. Conversational agents may override."""
+        return content_language_for_user(ctx.db, ctx.user_id)
+
+    def output_language_instruction(self, language: str) -> str:
+        return output_language_block(language)
 
     # -- execution ---------------------------------------------------------
 
@@ -68,6 +79,7 @@ class BaseAgent:
         )
         ctx.db.add(execution)
         ctx.db.flush()
+        self.last_execution = execution
 
         try:
             routed = route_task(self.task)
@@ -81,10 +93,10 @@ class BaseAgent:
             prompt_tokens = 0
             completion_tokens = 0
             result = None
-            lang = content_language_for_user(ctx.db, ctx.user_id)
+            lang = self.resolve_output_language(ctx, **kwargs)
             system = self.prompt.system if self.prompt else ""
             if system:
-                system = f"{system}\n\n{output_language_block(lang)}"
+                system = f"{system}\n\n{self.output_language_instruction(lang)}"
             user_message = f"OUTPUT_LANGUAGE: {lang}\n\n{user_message}"
             for attempt in range(self.validation_retries + 1):
                 repair_context = ""

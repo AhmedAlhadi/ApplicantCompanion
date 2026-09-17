@@ -4,7 +4,12 @@ from __future__ import annotations
 import io
 
 from app.llm import mock_logic
-from app.prompts.language import DEFAULT_LANGUAGE, output_language_block
+from app.prompts.language import (
+    DEFAULT_LANGUAGE,
+    detect_text_language,
+    output_language_block,
+    reply_language_for_question,
+)
 from app.qualification import degree_level
 from app.services.deadlines import extract_application_deadline, normalize_application_deadline
 
@@ -148,6 +153,25 @@ def test_output_language_block_mentions_arabic():
     assert "Modern Standard Arabic" in block
 
 
+def test_detect_text_language_from_script():
+    assert detect_text_language("ما هي مهاراتي؟") == "ar"
+    assert detect_text_language("ما خبرتي في Python؟") == "ar"
+    assert detect_text_language("What skills do I have?") == "en"
+    assert detect_text_language("؟") is None
+    assert detect_text_language("") is None
+
+
+def test_reply_language_uses_question_then_history_then_fallback():
+    assert reply_language_for_question("هل لدي مهارات؟", fallback="en") == "ar"
+    assert reply_language_for_question("What skills?", fallback="ar") == "en"
+    assert reply_language_for_question(
+        "؟",
+        history=[{"role": "user", "content": "ما هي مهاراتي؟"}],
+        fallback="en",
+    ) == "ar"
+    assert reply_language_for_question("؟", history=[], fallback="en") == "en"
+
+
 def test_base_agent_injects_arabic_output_language(db, monkeypatch):
     from app.agents.base import AgentContext, BaseAgent
     from app.llm.base import LLMResponse
@@ -179,6 +203,47 @@ def test_base_agent_injects_arabic_output_language(db, monkeypatch):
     assert "OUTPUT LANGUAGE" in captured[0].system
     assert "OUTPUT_LANGUAGE: ar" in captured[0].system
     assert captured[0].user.startswith("OUTPUT_LANGUAGE: ar")
+
+
+def test_coach_agent_injects_question_language_not_content_language(db, monkeypatch):
+    from app.agents.base import AgentContext
+    from app.agents.coach import CareerCoachAgent
+    from app.llm.base import LLMResponse
+    from app.llm.router import RoutedModel
+    from app.models import User
+    from app.services.settings import set_user_setting
+
+    user = db.query(User).filter_by(email="tester@example.com").first()
+    captured = []
+
+    class _CaptureProvider:
+        name = "capture"
+
+        def generate(self, model, request):
+            captured.append(request)
+            return LLMResponse(
+                text='{"answer":"x","citation_ids":[],"refused":false}',
+                data={"answer": "x", "citation_ids": [], "refused": False},
+            )
+
+    monkeypatch.setattr(
+        "app.agents.base.route_task",
+        lambda _: RoutedModel(_CaptureProvider(), "test", "test"),
+    )
+    try:
+        set_user_setting(db, user.id, "content_language", "en")
+        set_user_setting(db, user.id, "ui_language", "en")
+        CareerCoachAgent().run(
+            AgentContext(db=db, user_id=user.id),
+            payload={"question": "ما هي مهاراتي؟", "history": []},
+        )
+    finally:
+        set_user_setting(db, user.id, "content_language", "ar")
+        set_user_setting(db, user.id, "ui_language", "ar")
+    assert captured
+    assert captured[0].user.startswith("OUTPUT_LANGUAGE: ar")
+    assert "Modern Standard Arabic" in captured[0].system
+    assert "Do not switch to English" in captured[0].system
 
 
 def test_arabic_export_headings_in_docx():

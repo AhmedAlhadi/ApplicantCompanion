@@ -5,13 +5,44 @@ from sqlalchemy.orm import Session
 
 from ..agents.base import AgentContext
 from ..agents.coach import CareerCoachAgent
-from ..models import AgentExecution, Application, ApplicationStrategy, CareerProfile, Job, User
+from ..models import (
+    Achievement,
+    Application,
+    ApplicationStrategy,
+    CareerProfile,
+    Certification,
+    CoverLetter,
+    CV,
+    DocumentVersion,
+    Education,
+    Experience,
+    Job,
+    JobRequirement,
+    JobScore,
+    Language,
+    ProfessionalKnowledge,
+    Project,
+    RequirementMatch,
+    Skill,
+    User,
+)
 from ..models.coach import CoachConversation, CoachMessage
+from ..prompts.language import reply_language_for_question, ui_language_for_user
 from ..retrieval.pipeline import retrieve_evidence
 from ..security.injection import sanitize_untrusted
 
+REFUSED_FALLBACK = {
+    "ar": "لا تتوفر أدلة كافية في قاعدة معرفتك المهنية للإجابة على ذلك.",
+    "en": "I do not have enough evidenced information in your career knowledge base to answer that.",
+}
+
 HISTORY_LIMIT = 10
+HISTORY_MESSAGE_CHARS = 1500
 EVIDENCE_LIMIT = 12
+PROFILE_LIST_LIMIT = 8
+SKILL_LIST_LIMIT = 15
+MATCH_REQUIREMENT_LIMIT = 20
+DOCUMENT_EXCERPT_CHARS = 1500
 
 
 def _owned_job(db: Session, user_id: str, job_id: str | None) -> Job | None:
@@ -38,21 +69,138 @@ def _owned_application(db: Session, user_id: str, application_id: str | None) ->
     )
 
 
+def _not_deleted(query, model):
+    return query.filter(model.is_deleted == False)  # noqa: E712
+
+
 def compact_profile(db: Session, user_id: str) -> dict:
+    """Compact profile PLUS deterministic knowledge-base overview.
+
+    Aggregate questions ("what skills do I have?", "list my certifications")
+    cannot be answered by top-k semantic retrieval — the counts and short
+    listings below give the coach ground truth without dumping the KB.
+    """
     profile = db.query(CareerProfile).filter_by(user_id=user_id).first()
-    if not profile:
-        return {}
+    skills = (
+        _not_deleted(db.query(Skill).filter(Skill.user_id == user_id), Skill)
+        .order_by(Skill.evidence_count.desc(), Skill.canonical_name.asc())
+        .limit(SKILL_LIST_LIMIT)
+        .all()
+    )
+    experiences = (
+        _not_deleted(db.query(Experience).filter(Experience.user_id == user_id), Experience)
+        .order_by(Experience.start_date.desc())
+        .limit(PROFILE_LIST_LIMIT)
+        .all()
+    )
+    education = (
+        _not_deleted(db.query(Education).filter(Education.user_id == user_id), Education)
+        .limit(PROFILE_LIST_LIMIT)
+        .all()
+    )
+    certifications = (
+        _not_deleted(db.query(Certification).filter(Certification.user_id == user_id), Certification)
+        .limit(PROFILE_LIST_LIMIT)
+        .all()
+    )
+    languages = (
+        _not_deleted(db.query(Language).filter(Language.user_id == user_id), Language)
+        .limit(PROFILE_LIST_LIMIT)
+        .all()
+    )
+    counts = {
+        "experiences": _not_deleted(db.query(Experience).filter(Experience.user_id == user_id), Experience).count(),
+        "achievements": _not_deleted(db.query(Achievement).filter(Achievement.user_id == user_id), Achievement).count(),
+        "projects": _not_deleted(db.query(Project).filter(Project.user_id == user_id), Project).count(),
+        "skills": _not_deleted(db.query(Skill).filter(Skill.user_id == user_id), Skill).count(),
+        "professional_knowledge": _not_deleted(
+            db.query(ProfessionalKnowledge).filter(ProfessionalKnowledge.user_id == user_id),
+            ProfessionalKnowledge,
+        ).count(),
+    }
     return {
-        "full_name": profile.full_name,
-        "headline": profile.headline,
-        "summary": (profile.summary or "")[:600],
-        "primary_profession": profile.primary_profession,
-        "target_sectors": profile.target_sectors or [],
-        "preferred_positioning": (profile.preferred_positioning or "")[:400],
+        "full_name": profile.full_name if profile else "",
+        "headline": profile.headline if profile else "",
+        "summary": ((profile.summary or "")[:600]) if profile else "",
+        "primary_profession": profile.primary_profession if profile else "",
+        "target_sectors": (profile.target_sectors or []) if profile else [],
+        "preferred_positioning": ((profile.preferred_positioning or "")[:400]) if profile else "",
+        "knowledge_base_counts": counts,
+        "skills": [
+            {
+                "name": s.canonical_name,
+                "category": s.category,
+                "years_experience": s.years_experience,
+                "verification_status": s.verification_status,
+            }
+            for s in skills
+        ],
+        "experiences": [
+            {
+                "job_title": e.job_title,
+                "organization": e.organization,
+                "start_date": e.start_date,
+                "end_date": e.end_date,
+            }
+            for e in experiences
+        ],
+        "education": [
+            {"degree": e.degree, "field_of_study": e.field_of_study, "institution": e.institution}
+            for e in education
+        ],
+        "certifications": [{"name": c.name, "issuer": c.issuer} for c in certifications],
+        "languages": [
+            {"language": lang.language, "proficiency": lang.proficiency, "is_native": lang.is_native}
+            for lang in languages
+        ],
     }
 
 
-def job_context(job: Job | None) -> dict | None:
+def _match_analysis(db: Session, job_id: str) -> dict | None:
+    """Deterministic matching/scoring output — the coach must quote this,
+    not re-derive fit from raw requirements."""
+    score = (
+        db.query(JobScore)
+        .filter(JobScore.job_id == job_id)
+        .order_by(JobScore.created_at.desc())
+        .first()
+    )
+    matches = (
+        db.query(RequirementMatch, JobRequirement)
+        .join(JobRequirement, JobRequirement.id == RequirementMatch.requirement_id)
+        .filter(RequirementMatch.job_id == job_id)
+        .limit(MATCH_REQUIREMENT_LIMIT)
+        .all()
+    )
+    if not score and not matches:
+        return None
+    return {
+        "note": "Deterministic output of the matching/scoring engine. Treat as ground truth; never recompute fit yourself.",
+        "overall_score": score.overall_score if score else None,
+        "overall_score_range": (
+            [score.overall_score_low, score.overall_score_high] if score else None
+        ),
+        "coverage": score.coverage if score else None,
+        "recommendation": score.recommendation if score else "",
+        "gaps": (score.gaps or [])[:10] if score else [],
+        "strong_matches": (score.strong_matches or [])[:10] if score else [],
+        "partial_matches": (score.partial_matches or [])[:10] if score else [],
+        "transferable": (score.transferable or [])[:10] if score else [],
+        "requirements": [
+            {
+                "text": (req.text or "")[:200],
+                "importance": req.importance,
+                "requirement_type": req.requirement_type,
+                "status": match.status,
+                "match_kind": match.match_kind,
+                "explanation": (match.explanation or "")[:240],
+            }
+            for match, req in matches
+        ],
+    }
+
+
+def job_context(db: Session, job: Job | None) -> dict | None:
     if not job:
         return None
     parsed = job.parsed if isinstance(job.parsed, dict) else {}
@@ -67,7 +215,45 @@ def job_context(job: Job | None) -> dict | None:
             for r in (parsed.get("requirements") or [])[:12]
             if isinstance(r, dict)
         ],
+        "match_analysis": _match_analysis(db, job.id),
     }
+
+
+def _application_documents(db: Session, application_id: str) -> list[dict]:
+    """Current CV / cover-letter snapshots so the coach can discuss the actual
+    documents (excerpt only — editing stays in the Documents screen)."""
+    docs: list[dict] = []
+    for doc_type, model in (("cv", CV), ("cover_letter", CoverLetter)):
+        doc = db.query(model).filter_by(application_id=application_id).first()
+        if not doc:
+            continue
+        version = (
+            db.query(DocumentVersion)
+            .filter(
+                DocumentVersion.document_type == doc_type,
+                DocumentVersion.document_id == doc.id,
+                DocumentVersion.is_current == True,  # noqa: E712
+            )
+            .order_by(DocumentVersion.version_number.desc())
+            .first()
+        )
+        if not version:
+            continue
+        ats = version.ats_analysis if isinstance(version.ats_analysis, dict) else {}
+        docs.append(
+            {
+                "document_type": doc_type,
+                "title": doc.title,
+                "version": version.version_number,
+                "is_approved": version.is_approved,
+                "user_edited": version.user_edited,
+                "ats_score": ats.get("ats_score"),
+                "ats_missing_keywords": (ats.get("missing_keywords") or [])[:8],
+                "text_excerpt": (version.rendered_text or "")[:DOCUMENT_EXCERPT_CHARS],
+                "note": "Excerpt of the current version. The coach may quote and critique it but cannot edit documents.",
+            }
+        )
+    return docs
 
 
 def application_context(db: Session, app: Application | None) -> dict | None:
@@ -80,9 +266,15 @@ def application_context(db: Session, app: Application | None) -> dict | None:
         "application_id": app.id,
         "status": app.status,
         "fit_score": app.fit_score_snapshot,
+        "ats_score": app.ats_score_snapshot,
         "note": "Application strategy is advice, not additional career evidence.",
         "positioning": (strategy.positioning if strategy else "")[:400],
         "concerns": (strategy.concerns if strategy else [])[:6],
+        "keywords": (strategy.keywords if strategy else [])[:20],
+        "priority_skills": (strategy.priority_skills if strategy else [])[:10],
+        "de_emphasis": (strategy.de_emphasis if strategy else [])[:6],
+        "messaging_strategy": (strategy.messaging_strategy if strategy else "")[:600],
+        "documents": _application_documents(db, app.id),
     }
 
 
@@ -133,6 +325,20 @@ def message_payload(msg: CoachMessage) -> dict:
     }
 
 
+def _retrieval_query(question: str, history: list[CoachMessage]) -> str:
+    """History-aware retrieval query.
+
+    Follow-up questions ("what about the second one?", "and my education?")
+    are meaningless as standalone embedding inputs — ground them in the last
+    exchange so retrieval stays on-topic.
+    """
+    if not history:
+        return question
+    parts = [f"{m.role}: {m.content[:300]}" for m in history[-2:]]
+    parts.append(f"user: {question}")
+    return "\n".join(parts)
+
+
 def run_turn(
     db: Session,
     user: User,
@@ -164,7 +370,6 @@ def run_turn(
     db.add(user_msg)
     db.flush()
 
-    retrieved = retrieve_evidence(db, user.id, question, limit=EVIDENCE_LIMIT)
     history = (
         db.query(CoachMessage)
         .filter(
@@ -174,11 +379,15 @@ def run_turn(
         .order_by(CoachMessage.created_at.asc())
         .all()
     )
+    history_rows = [m for m in history[-HISTORY_LIMIT:] if m.id != user_msg.id]
+    # Bound per-message size so 10 long turns cannot blow the prompt budget.
     history_payload = [
-        {"role": m.role, "content": m.content}
-        for m in history[-HISTORY_LIMIT:]
-        if m.id != user_msg.id
+        {"role": m.role, "content": m.content[:HISTORY_MESSAGE_CHARS]}
+        for m in history_rows
     ]
+    retrieved = retrieve_evidence(
+        db, user.id, _retrieval_query(question, history_rows), limit=EVIDENCE_LIMIT
+    )
     evidence_payload = [
         {
             "entity_type": item.entity_type,
@@ -193,27 +402,28 @@ def run_turn(
         "profile": compact_profile(db, user.id),
         "evidence": evidence_payload,
         "history": history_payload,
-        "job_context": job_context(job),
+        "job_context": job_context(db, job),
         "application_context": application_context(db, app),
     }
 
     ctx = AgentContext(db=db, user_id=user.id, job_id=conv.job_id, application_id=conv.application_id)
-    result = CareerCoachAgent().run(ctx, payload=payload)
+    agent = CareerCoachAgent()
+    result = agent.run(ctx, payload=payload)
     citations = resolve_citations(retrieved, list(result.citation_ids or []))
     if result.refused:
         citations = []
 
     answer = (result.answer or "").strip()
     if result.refused and not answer:
-        answer = "I do not have enough evidenced information in your career knowledge base to answer that."
+        lang = reply_language_for_question(
+            question, history_payload, ui_language_for_user(db, user.id)
+        )
+        answer = REFUSED_FALLBACK.get(lang, REFUSED_FALLBACK["en"])
 
-    execution = (
-        db.query(AgentExecution)
-        .filter(AgentExecution.agent_name == "career_coach")
-        .order_by(AgentExecution.created_at.desc())
-        .first()
-    )
-    usage = execution.token_usage if execution else {}
+    # Per-instance reference — never query "latest execution by agent name":
+    # concurrent coach turns (even across users) would attach the wrong usage.
+    execution = agent.last_execution
+    usage = (execution.token_usage if execution else {}) or {}
     assistant = CoachMessage(
         conversation_id=conv.id,
         user_id=user.id,

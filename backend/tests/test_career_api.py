@@ -194,3 +194,23 @@ def test_profile_roundtrip(client, auth_headers):
     assert resp.status_code == 200
     got = client.get("/api/career/profile", headers=auth_headers)
     assert got.json()["headline"] == "Data Leader"
+
+
+def test_education_month_name_dates_fit_varchar10(client, auth_headers):
+    """LLM-style month names must be stored as YYYY-MM (Postgres varchar(10))."""
+    resp = client.post(
+        "/api/career/education",
+        headers=auth_headers,
+        json={
+            "institution": "Lebanese International University",
+            "degree": "BSC",
+            "field_of_study": "INFORMATION TECHNOLOGY",
+            "start_date": "AUGUST 2013",
+            "end_date": "Present",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["start_date"] == "2013-08"
+    assert body["end_date"] is None
+    assert len(body["start_date"]) <= 10

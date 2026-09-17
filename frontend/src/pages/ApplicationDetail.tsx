@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FileText, Files, Mail, RefreshCw, Sparkles } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { AppDocument, Application, JobScore, Strategy, Template, UserSettings } from "../api/types";
+import { openCoachWidget } from "../components/coach/CoachWidget";
 import { Empty, ErrorBox, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { showAts } from "../lib/ats";
@@ -146,7 +147,7 @@ export default function ApplicationDetail() {
             {a.job?.organization_name} {a.job?.location ? `· ${a.job.location}` : ""}{" "}
             <Link to={`/jobs/${a.job_id}`} className="small">{t("application.viewJob")}</Link>
             {" "}
-            <Link to={`/coach?application=${a.id}&job=${a.job_id}`} className="small">{t("coach.askAboutJob")}</Link>
+            <button type="button" className="sm ghost" onClick={openCoachWidget}>{t("coach.askAboutJob")}</button>
           </p>
         </div>
         <span className={`badge ${a.status}`} style={{ fontSize: 13 }}>{a.status}</span>

@@ -8,12 +8,14 @@ import {
   ExternalLink,
   Gauge,
   MapPin,
+  MessageSquare,
   Pencil,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 import { api } from "../api/client";
 import type { Application, Job, JobAnalysisResponse, JobScore, ResearchResponse } from "../api/types";
+import { openCoachWidget } from "../components/coach/CoachWidget";
 import { Empty, ErrorBox, Link, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { EvidenceGraph } from "../components/EvidenceGraph";
@@ -246,7 +248,9 @@ export default function JobDetail() {
           <button className="primary" onClick={startApplication} disabled={busy || workflowActive}>
             {relatedApps.length ? t("jobDetail.openApp") : t("jobDetail.startApp")} <ArrowRight aria-hidden />
           </button>
-          <Link to={`/coach?job=${job.id}`}>{t("coach.askAboutJob")}</Link>
+          <button type="button" onClick={openCoachWidget}>
+            <MessageSquare aria-hidden /> {t("coach.askAboutJob")}
+          </button>
           <button className="danger" onClick={deleteJob} disabled={busy || workflowActive}>
             <Trash2 aria-hidden /> {t("common.delete")}
           </button>
