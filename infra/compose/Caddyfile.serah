@@ -1,0 +1,19 @@
+serah.useshortlisted.app {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	handle /api/* {
+		reverse_proxy serah-backend:8000 {
+			flush_interval -1
+			transport http {
+				read_timeout 15m
+			}
+		}
+	}
+	handle {
+		reverse_proxy serah-frontend:80
+	}
+}

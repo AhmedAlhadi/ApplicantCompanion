@@ -16,7 +16,7 @@ for the annotated template. Key groups:
 | Uploads | `MAX_UPLOAD_MB`, `ALLOWED_UPLOAD_EXTENSIONS` | |
 | Security | `RATE_LIMIT_PER_MINUTE`, `ACCESS_TOKEN_EXPIRE_MINUTES` | |
 
-## Docker Compose (recommended)
+## Docker Compose (local, full stack)
 
 ```bash
 cp .env.example .env
@@ -30,6 +30,72 @@ schema and seeds templates + the demo account (idempotent).
 - Frontend: http://localhost:5173
 - API + OpenAPI docs: http://localhost:8000/api/docs
 - MinIO console: http://localhost:9001
+
+This local stack is independent of the hosted droplet. It starts its own
+Postgres, Qdrant, and MinIO.
+
+## Hosted droplet (shared with Shortlisted)
+
+Serah is hosted on the same DigitalOcean droplet as Shortlisted:
+
+- Product: **https://serah.useshortlisted.app**
+- Shortlisted: https://platform.useshortlisted.app
+- Droplet: `165.22.93.12`
+- Remote tree: `/opt/serah` (Shortlisted stays at `/opt/shortlisted`)
+
+**Shared (one instance, owned by Shortlisted):** Postgres, MinIO, Caddy.
+**Serah-only:** Qdrant, backend, frontend.
+
+A Serah deploy does not recreate Shortlisted containers. A Shortlisted deploy
+does not stop Serah. Each app has its own Compose project (`serah` vs
+Shortlisted’s) and `--remove-orphans` cannot cross that boundary.
+
+### First-time setup
+
+1. DNS: A record `serah.useshortlisted.app` → `165.22.93.12`, **DNS only**
+   (grey cloud) so Let’s Encrypt HTTP-01 can complete.
+2. Deploy Shortlisted infra **first** (shared network + Caddy `import` of
+   `/opt/caddy/sites/*.caddy`):
+   ```powershell
+   cd e:\projects\Shortlisted
+   .\scripts\deploy.ps1
+   ```
+3. Copy [`infra/compose/.env.example`](../infra/compose/.env.example) to
+   `infra/compose/.env`. Set a strong `SECRET_KEY` and `SERAH_DB_PASSWORD`
+   (URL-safe). Copy `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` from
+   `/opt/shortlisted/infra/compose/.env` on the VM (or the compose defaults
+   `minio` / `minio123`).
+4. Google Cloud Console: add Authorized JavaScript origin
+   `https://serah.useshortlisted.app` (no trailing slash) if Google Sign-In
+   is enabled.
+5. Deploy Serah:
+   ```powershell
+   cd e:\projects\ApplicantCompanion
+   .\scripts\deploy.ps1 -SyncEnv
+   ```
+
+The Serah script creates Postgres role `serah` and database
+`applicant_companion` on the existing instance, starts Qdrant + backend +
+frontend, writes `/opt/caddy/sites/serah.caddy`, and reloads Caddy.
+
+### Ongoing deploys
+
+```powershell
+cd e:\projects\ApplicantCompanion
+.\scripts\deploy.ps1              # keep VM .env
+.\scripts\deploy.ps1 -SyncEnv     # replace VM .env from local
+.\scripts\deploy.ps1 -NoCache     # rebuild images from scratch
+.\scripts\deploy.ps1 -Status      # health only
+```
+
+Override host/user with `-Target`, `-User`, `-IdentityFile`, or `DEPLOY_HOST`
+/ `DEPLOY_USER` / `DEPLOY_SSH_KEY`.
+
+Loopback health (not public): `http://127.0.0.1:8010/api/health`.
+Public health: `https://serah.useshortlisted.app/api/health`.
+
+Hosted env template: [`infra/compose/.env.example`](../infra/compose/.env.example).
+Compose file: [`infra/compose/docker-compose.hosted.yml`](../infra/compose/docker-compose.hosted.yml).
 
 ## Standalone (no Docker)
 

@@ -88,8 +88,9 @@ That seed user is the workspace admin.
   emails are linked so the same person can use both methods.
 - **Google** — set `GOOGLE_CLIENT_ID` in `.env` to a [Google Identity Services](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)
   **Web application** client ID. In Google Cloud Console → Credentials, add these
-  **Authorized JavaScript origins** (no trailing slash): `http://localhost:5173`
-  and `http://127.0.0.1:5173`. Redirect URIs are not required for this ID-token
+  **Authorized JavaScript origins** (no trailing slash): `http://localhost:5173`,
+  `http://127.0.0.1:5173`, and (hosted) `https://serah.useshortlisted.app`.
+  Redirect URIs are not required for this ID-token
   flow. Leave the env var empty to hide the button. The backend verifies the ID
   token; no client secret is required.
 - **Isolation** — every query is scoped by `user_id`. Admins manage **accounts

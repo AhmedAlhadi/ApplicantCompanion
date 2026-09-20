@@ -1,0 +1,75 @@
+# Hosted overlay for the shared DigitalOcean droplet.
+# Does not start Postgres, MinIO, Redis, or Caddy — those stay in Shortlisted.
+#
+#   docker compose -f docker-compose.hosted.yml up --pull missing --build -d
+#
+# Requires the external Docker network `shared` (created by Shortlisted deploy).
+
+name: serah
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    pull_policy: missing
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_NAME: Serah
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg2://serah:${SERAH_DB_PASSWORD}@postgres:5432/applicant_companion
+      VECTOR_STORE: qdrant
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: career_evidence
+      OBJECT_STORE: minio
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minio123}
+      MINIO_BUCKET: applicant-companion
+      MINIO_SECURE: "false"
+      FRONTEND_ORIGIN: https://serah.useshortlisted.app
+      OPENROUTER_HTTP_REFERER: https://serah.useshortlisted.app
+      OPENROUTER_APP_TITLE: Serah
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+    ports:
+      - "127.0.0.1:8010:8000"
+    depends_on:
+      qdrant:
+        condition: service_started
+    networks:
+      default:
+      shared:
+        aliases:
+          - serah-backend
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      default:
+      shared:
+        aliases:
+          - serah-frontend
+
+networks:
+  shared:
+    name: shared
+    external: true
+
+volumes:
+  qdrant_data:
