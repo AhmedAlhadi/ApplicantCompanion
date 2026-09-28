@@ -5,7 +5,7 @@ import time
 
 from app.models import Experience, User
 from app.security.auth import create_access_token, hash_password
-from conftest import SAMPLE_JD
+from conftest import SAMPLE_JD, post_ingest_text
 
 
 def _headers_for(db, *, email: str, full_name: str = "", with_experience: bool = False) -> dict:
@@ -106,9 +106,7 @@ January 2021 - December 2023
 SKILLS
 Python, OnboardSkillXYZ
 """
-    resp = client.post("/api/career/ingest-text", headers=headers, json={"text": text, "doc_type": "cv"})
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = post_ingest_text(client, headers, {"text": text, "doc_type": "cv"})
     pending_id = body["pending_ingestion_id"]
     assert pending_id
     profile = body.get("profile") or {}
@@ -129,12 +127,11 @@ Python, OnboardSkillXYZ
     assert any(e["organization"] == "IngestOnboard" for e in experiences)
 
     # Existing profile values must not be overwritten on a second ingest
-    again = client.post(
-        "/api/career/ingest-text",
-        headers=headers,
-        json={"text": "Other Name\nother@example.com\nLocation: Paris\n", "doc_type": "notes"},
+    post_ingest_text(
+        client,
+        headers,
+        {"text": "Other Name\nother@example.com\nLocation: Paris\n", "doc_type": "notes"},
     )
-    assert again.status_code == 200, again.text
     saved2 = client.get("/api/career/profile", headers=headers).json()
     assert saved2["full_name"] == "Jane Onboard"
     assert saved2["email"] == "jane.onboard@example.com"

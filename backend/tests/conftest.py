@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,33 @@ def auth_headers(client) -> dict:
     assert resp.status_code == 200, resp.text
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def wait_for_ingest(client, headers: dict, document_id: str, timeout: float = 30.0) -> dict:
+    """Poll until background document ingest completes (or fails)."""
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        resp = client.get(f"/api/career/documents/{document_id}", headers=headers)
+        if resp.status_code == 200:
+            last = resp.json()
+            status = last.get("ingest_status")
+            if status == "completed":
+                result = last.get("ingest_result") or {}
+                return {"document_id": document_id, **result}
+            if status == "failed":
+                raise AssertionError(last.get("ingest_error") or "ingest failed")
+        time.sleep(0.1)
+    raise TimeoutError(f"ingest did not complete: {last}")
+
+
+def post_ingest_text(client, headers: dict, payload: dict, timeout: float = 30.0) -> dict:
+    resp = client.post("/api/career/ingest-text", headers=headers, json=payload)
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body.get("document_id")
+    assert body.get("ingest_status") == "running"
+    return wait_for_ingest(client, headers, body["document_id"], timeout=timeout)
 
 
 @pytest.fixture()

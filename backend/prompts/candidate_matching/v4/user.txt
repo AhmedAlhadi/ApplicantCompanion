@@ -1,0 +1,8 @@
+Match each requirement against its scoped evidence and structured facts.
+Unverified and needs_review records in the payload are valid evidence.
+
+```json
+{payload_json}
+```
+
+Return only the JSON object.

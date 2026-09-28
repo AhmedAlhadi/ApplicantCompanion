@@ -31,7 +31,7 @@ from ..models import (
     Skill,
     User,
 )
-from ..retrieval.pipeline import index_entity
+from ..retrieval.pipeline import index_entity, invalidate_user_index
 from .knowledge import (
     attach_context,
     knowledge_items_from_extraction,
@@ -156,14 +156,18 @@ class IngestionService:
         """Run extraction, auto-apply simple entities, queue reconcilable ones for review."""
         ctx = ctx or AgentContext(db=self.db, user_id=self.user.id)
         if not document.extracted_text:
-            document.ingested = True
-            self.db.flush()
-            return {
+            empty = {
                 "pending_ingestion_id": None,
                 "auto_applied": {"experiences": 0, "skills": 0},
                 "proposals_count": 0,
                 "note": "No extractable text",
             }
+            document.ingested = True
+            document.ingest_status = "completed"
+            document.ingest_error = ""
+            document.ingest_result = empty
+            self.db.commit()
+            return empty
 
         result = CareerKnowledgeAgent().run(
             ctx,
@@ -253,40 +257,43 @@ class IngestionService:
             )
 
         for edu in result.education:
-            self.db.add(
-                Education(
-                    user_id=self.user.id,
-                    institution=edu.institution,
-                    degree=edu.degree,
-                    field_of_study=edu.field_of_study,
-                    start_date=normalize_career_date(edu.start_date),
-                    end_date=normalize_career_date(edu.end_date),
-                    verification_status="needs_review",
-                )
+            row = Education(
+                user_id=self.user.id,
+                institution=edu.institution,
+                degree=edu.degree,
+                field_of_study=edu.field_of_study,
+                start_date=normalize_career_date(edu.start_date),
+                end_date=normalize_career_date(edu.end_date),
+                verification_status="needs_review",
             )
+            self.db.add(row)
+            self.db.flush()
             auto_applied["education"] += 1
+            index_entity(self.db, "education", row.id)
 
         for cert in result.certifications:
-            self.db.add(
-                Certification(
-                    user_id=self.user.id,
-                    name=cert.name,
-                    issuer=cert.issuer,
-                    issue_date=normalize_career_date(cert.issue_date),
-                    verification_status="needs_review",
-                )
+            row = Certification(
+                user_id=self.user.id,
+                name=cert.name,
+                issuer=cert.issuer,
+                issue_date=normalize_career_date(cert.issue_date),
+                verification_status="needs_review",
             )
+            self.db.add(row)
+            self.db.flush()
             auto_applied["certifications"] += 1
+            index_entity(self.db, "certification", row.id)
 
         for lang in result.languages:
-            self.db.add(
-                Language(
-                    user_id=self.user.id,
-                    language=lang.language,
-                    proficiency=lang.proficiency,
-                )
+            row = Language(
+                user_id=self.user.id,
+                language=lang.language,
+                proficiency=lang.proficiency,
             )
+            self.db.add(row)
+            self.db.flush()
             auto_applied["languages"] += 1
+            index_entity(self.db, "language", row.id)
 
         profile_applied = self._apply_extracted_profile(result)
 
@@ -340,9 +347,7 @@ class IngestionService:
         else:
             self._link_knowledge_items(pending_knowledge, document)
 
-        document.ingested = True
-        self.db.commit()
-        return {
+        result_payload = {
             "pending_ingestion_id": pending_id,
             "auto_applied": {k: v for k, v in auto_applied.items() if k != "knowledge_links"},
             "proposals_count": len(proposals),
@@ -353,6 +358,13 @@ class IngestionService:
                 "pending_review": len(proposals),
             },
         }
+        document.ingested = True
+        document.ingest_status = "completed"
+        document.ingest_error = ""
+        document.ingest_result = result_payload
+        self.db.commit()
+        invalidate_user_index(self.user.id)
+        return result_payload
 
     def _apply_extracted_profile(self, result) -> dict:
         """Fill empty CareerProfile fields from extraction; never overwrite user values."""
@@ -477,6 +489,7 @@ class IngestionService:
         )
         pending.status = "completed"
         self.db.commit()
+        invalidate_user_index(self.user.id)
         return applied
 
     def discard_pending(self, pending: PendingIngestion) -> None:

@@ -111,7 +111,7 @@ export default function App() {
           <Route path="/ai-config" element={<AIConfig />} />
           <Route
             path="/admin"
-            element={me.data.is_admin ? <AdminDashboard /> : <Navigate to="/" replace />}
+            element={me.data.is_admin ? <AdminDashboard currentUser={me.data} /> : <Navigate to="/" replace />}
           />
           <Route
             path="/admin/users"

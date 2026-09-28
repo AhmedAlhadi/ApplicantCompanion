@@ -23,6 +23,7 @@ from ..models import (
 from ..schemas.api import ApplicationCreate, ApplicationUpdate, DecideRequest, GenerateRequest
 from ..security.auth import audit, get_current_user
 from ..services.serializers import to_dict
+from ..services.user_errors import public_error
 from ..workers.runner import submit
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
@@ -161,15 +162,16 @@ def _fail_run(db: Session, run_id: str, exc: Exception) -> None:
     run = db.get(WorkflowRun, run_id)
     if run is None:
         return
+    message = public_error(exc)[:2000]
     stages = [dict(stage) for stage in run.stages]
     for stage in stages:
         if stage.get("status") == "RUNNING":
             stage["status"] = "FAILED"
             stage["ended_at"] = datetime.now(timezone.utc).isoformat()
-            stage["error"] = str(exc)[:1000]
+            stage["error"] = message[:1000]
     run.stages = stages
     run.status = "FAILED"
-    run.error = str(exc)[:2000]
+    run.error = message
 
 
 def _run_strategy_background(app_id: str, user_id: str, run_id: str) -> None:

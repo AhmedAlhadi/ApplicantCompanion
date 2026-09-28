@@ -80,6 +80,30 @@ class TestMatching:
         result = mock_logic.mock_candidate_matching(f"```json\n{json.dumps(payload)}\n```")
         assert result["matches"][0]["status"] == "UNKNOWN"
 
+    def test_uses_unverified_structured_facts_when_retrieval_empty(self):
+        import json
+
+        payload = {
+            "requirements": [{"id": "r1", "text": "Experience with Power BI dashboards"}],
+            "evidence": [],
+            "evidence_by_requirement": {"r1": []},
+            "structured_facts": {
+                "r1": {
+                    "experience": [{
+                        "entity_type": "experience",
+                        "entity_id": "e1",
+                        "text": "Developed Power BI dashboards for project monitoring",
+                        "verification_status": "needs_review",
+                    }],
+                }
+            },
+        }
+        result = mock_logic.mock_candidate_matching(f"```json\n{json.dumps(payload)}\n```")
+        match = result["matches"][0]
+        assert match["status"] == "MATCHED"
+        assert match["evidence"][0]["entity_id"] == "e1"
+        assert match["evidence"][0]["source"] == "needs_review"
+
     def test_transferable_detection(self):
         import json
 
@@ -89,6 +113,33 @@ class TestMatching:
         }
         result = mock_logic.mock_candidate_matching(f"```json\n{json.dumps(payload)}\n```")
         assert result["matches"][0]["status"] in ("TRANSFERABLE", "PARTIALLY_MATCHED", "MATCHED")
+
+    def test_token_overlap_survives_failed_qualification_paths(self):
+        import json
+
+        payload = {
+            "requirements": [{
+                "id": "r1",
+                "text": "Experience with Power BI dashboards",
+                "qualification_paths": [{
+                    "predicates": [{"kind": "relevant_experience", "minimum_years": 10, "terms": ["power bi"]}],
+                }],
+            }],
+            "evidence": [{
+                "entity_type": "experience",
+                "entity_id": "e1",
+                "text": "Developed Power BI dashboards for project monitoring",
+                "verification_status": "needs_review",
+            }],
+            "structured_facts": {"r1": {"experience": [{
+                "entity_id": "e1",
+                "text": "Developed Power BI dashboards for project monitoring",
+                "start_date": "2023-01",
+                "end_date": "2023-12",
+            }]}},
+        }
+        result = mock_logic.mock_candidate_matching(f"```json\n{json.dumps(payload)}\n```")
+        assert result["matches"][0]["status"] == "MATCHED"
 
 
 class TestCareerExtraction:

@@ -1,4 +1,4 @@
-"""Admin user-management APIs. Account records only — never another user's workspace."""
+"""Admin user-management APIs. Account records and onboarding flags — never another user's career or job data."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,6 +11,8 @@ from ..models import Application, Job, User
 from ..schemas.api import AdminUserCreate, AdminUserUpdate
 from ..security.auth import audit, hash_password, require_admin
 from ..services.serializers import to_dict
+from ..services.settings import get_user_setting
+from .onboarding import ONBOARDING_KEY, reset_onboarding
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -51,6 +53,7 @@ def _admin_user_payload(db: Session, user: User) -> dict:
         .filter(Application.user_id == user.id, Application.is_deleted == False)  # noqa: E712
         .count()
     )
+    data["onboarding_status"] = get_user_setting(db, user.id, ONBOARDING_KEY, None)
     return data
 
 
@@ -155,3 +158,18 @@ def delete_user(user_id: str, request: Request, db: Session = Depends(get_db), a
     audit(db, admin, "admin.user.delete", "user", user.id, request=request)
     db.commit()
     return {"ok": True}
+
+
+@router.post("/users/{user_id}/reset-onboarding")
+def reset_user_onboarding(
+    user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    user = _get_managed_user(db, user_id)
+    reset_onboarding(db, user.id)
+    audit(db, admin, "admin.user.reset_onboarding", "user", user.id, request=request)
+    db.commit()
+    db.refresh(user)
+    return _admin_user_payload(db, user)

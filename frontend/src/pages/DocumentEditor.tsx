@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download, History, Pencil } from "lucide-react";
 import { api, downloadFile } from "../api/client";
-import type { AppDocument, CVContent, CoverLetterContent, Template, UserSettings } from "../api/types";
-import { Empty, ErrorBox, Link, Spinner, useApi } from "../components/ui";
+import type { AppDocument, CVContent, CoverLetterContent, JobScore, Template, UserSettings } from "../api/types";
+import { Empty, ErrorBox, Link, Spinner, UnverifiedEvidenceNote, useApi } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { showAts } from "../lib/ats";
 import { mergeEvidenceIds, stripInlineEvidence } from "../lib/evidenceText";
@@ -46,6 +46,12 @@ export default function DocumentEditor() {
   const doc = useApi<AppDocument>(() => api.get(`/api/documents/${id}`), [id]);
   const templates = useApi<Template[]>(() => api.get("/api/templates"));
   const settings = useApi<UserSettings>(() => api.get("/api/settings"));
+  const score = useApi<JobScore | null>(
+    () => (doc.data?.job?.id
+      ? api.get<JobScore>(`/api/jobs/${doc.data.job.id}/score`).catch(() => null)
+      : Promise.resolve(null)),
+    [doc.data?.job?.id],
+  );
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -169,6 +175,7 @@ export default function DocumentEditor() {
       </div>
 
       <ErrorBox error={error} />
+      <UnverifiedEvidenceNote count={score.data?.unverified_evidence_count} />
 
       <div className="grid cols-3" style={{ gridTemplateColumns: "2fr 1fr" }}>
         <div>

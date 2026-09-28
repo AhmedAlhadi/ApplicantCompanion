@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 import httpx
 
 from ..config import get_settings
 from .base import LLMRequest, LLMResponse, LLMProvider
+from .json_schema import openai_strict_schema, schema_name
+
+logger = logging.getLogger(__name__)
 
 def _raise_http_error(resp: httpx.Response) -> None:
     detail = (resp.text or "")[:800]
@@ -65,15 +69,16 @@ def _openai_compatible_chat(
     
     system_prompt = request.system
     if request.response_schema:
+        schema = openai_strict_schema(request.response_schema)
         payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
-                "name": request.prompt_name.replace("-", "_"),
+                "name": schema_name(request.prompt_name),
                 "strict": True,
-                "schema": request.response_schema,
+                "schema": schema,
             },
         }
-        schema_json = json.dumps(request.response_schema, indent=2)
+        schema_json = json.dumps(schema, separators=(",", ":"))
         system_prompt += f"\n\nIMPORTANT: You must return a JSON object that strictly adheres to the following JSON schema:\n```json\n{schema_json}\n```"
 
     payload["messages"] = [
@@ -87,6 +92,11 @@ def _openai_compatible_chat(
     if request.response_schema and resp.status_code in (400, 422):
         # Some OpenAI-compatible models only implement JSON-object mode.
         # Pydantic validation and repair retries remain the final contract.
+        logger.warning(
+            "Structured json_schema rejected (%s); retrying with json_object: %s",
+            resp.status_code,
+            (resp.text or "")[:500],
+        )
         payload["response_format"] = {"type": "json_object"}
         resp = _post_json(url, headers=headers, json=payload)
 
@@ -161,7 +171,7 @@ class GeminiProvider(LLMProvider):
         
         system_prompt = request.system
         if request.response_schema:
-            schema_json = json.dumps(request.response_schema, indent=2)
+            schema_json = json.dumps(openai_strict_schema(request.response_schema), indent=2)
             system_prompt += f"\n\nIMPORTANT: You must return a JSON object that strictly adheres to the following JSON schema:\n```json\n{schema_json}\n```"
             
         payload = {
@@ -206,7 +216,7 @@ class OllamaProvider(LLMProvider):
         
         system_prompt = request.system
         if request.response_schema:
-            schema_json = json.dumps(request.response_schema, indent=2)
+            schema_json = json.dumps(openai_strict_schema(request.response_schema), indent=2)
             system_prompt += f"\n\nIMPORTANT: You must return a JSON object that strictly adheres to the following JSON schema:\n```json\n{schema_json}\n```"
 
         payload = {

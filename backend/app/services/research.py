@@ -31,22 +31,34 @@ class SearchProvider:
 
 
 class DuckDuckGoSearchProvider(SearchProvider):
-    URL = "https://html.duckduckgo.com/html/"
+    URLS = (
+        "https://html.duckduckgo.com/html/",
+        "https://duckduckgo.com/html/",
+    )
 
     def search(self, query: str, max_results: int = 5) -> list[dict]:
-        try:
-            resp = httpx.post(
-                self.URL,
-                data={"q": query},
-                timeout=get_settings().research_timeout_seconds,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Serah/1.0)"},
-            )
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            logger.warning("Search failed for %r: %s", query, exc)
+        last_error: Exception | None = None
+        for url in self.URLS:
+            try:
+                resp = httpx.post(
+                    url,
+                    data={"q": query},
+                    timeout=get_settings().research_timeout_seconds,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; Serah/1.0)"},
+                    follow_redirects=True,
+                )
+                resp.raise_for_status()
+                last_error = None
+                html = resp.text
+                break
+            except (httpx.HTTPError, OSError) as exc:
+                last_error = exc
+                continue
+        else:
+            logger.warning("Search failed for %r: %s", query, last_error)
             return []
         results = []
-        for m in _RESULT_RE.finditer(resp.text):
+        for m in _RESULT_RE.finditer(html):
             href, title = m.group(1), re.sub(r"<[^>]+>", "", m.group(2))
             redirect = _DDG_REDIRECT_RE.search(href)
             if redirect:

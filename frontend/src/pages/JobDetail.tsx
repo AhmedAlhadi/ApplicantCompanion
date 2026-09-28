@@ -16,7 +16,7 @@ import {
 import { api } from "../api/client";
 import type { Application, Job, JobAnalysisResponse, JobScore, ResearchResponse } from "../api/types";
 import { openCoachWidget } from "../components/coach/CoachWidget";
-import { Empty, ErrorBox, Link, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+import { Empty, ErrorBox, Link, ScoreRing, Spinner, UnverifiedEvidenceNote, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { EvidenceGraph } from "../components/EvidenceGraph";
 import { dateLocale, useT } from "../lib/i18n";
@@ -284,7 +284,11 @@ export default function JobDetail() {
           <Gauge aria-hidden />
           <div>
             <div className="fact-k">Fit</div>
-            <div className="fact-v">{s ? `${Math.round(s.overall_score * 100)}%` : "Not scored"}</div>
+            <div className="fact-v">
+              {s
+                ? (s.coverage != null && s.coverage <= 0 ? t("score.unevaluated") : `${Math.round(s.overall_score * 100)}%`)
+                : "Not scored"}
+            </div>
           </div>
         </div>
       </div>
@@ -594,7 +598,8 @@ function FitTab({
         <div className="grid cols-2">
           <div className="panel">
             <h3>Fit Analysis</h3>
-            <ScoreRing score={s.overall_score} threshold={s.threshold} low={s.overall_score_low} high={s.overall_score_high} />
+            <ScoreRing score={s.overall_score} threshold={s.threshold} low={s.overall_score_low} high={s.overall_score_high} coverage={s.coverage} />
+            <UnverifiedEvidenceNote count={s.unverified_evidence_count} />
             <div className="mt">
               {Object.entries(s.category_scores).map(([key, value]) => (
                 <div className="score-row" key={key}>
@@ -606,9 +611,12 @@ function FitTab({
             </div>
             {s.unknown_count > 0 && (
               <p className="small muted mt">
-                {s.unknown_count} requirement(s) could not be evaluated
-                {s.coverage != null && s.coverage < 1 ? ` — the score above reflects ${Math.round(s.coverage * 100)}% of the job's requirements` : ""}.
-                Add more career evidence to improve accuracy.
+                {t("score.unknownNote", {
+                  n: s.unknown_count,
+                  coverage: s.coverage != null && s.coverage < 1
+                    ? t("score.unknownCoverage", { pct: Math.round(s.coverage * 100) })
+                    : "",
+                })}
               </p>
             )}
           </div>

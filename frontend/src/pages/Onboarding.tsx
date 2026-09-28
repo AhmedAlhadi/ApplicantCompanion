@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, FileSearch, FileText, PartyPopper, RefreshCw, Sparkles, Upload, User as UserIcon } from "lucide-react";
-import { api } from "../api/client";
+import { api, waitForCareerIngest } from "../api/client";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import type {
   AppDocument,
@@ -13,7 +13,7 @@ import type {
   User,
   WorkflowRun,
 } from "../api/types";
-import { Brand, ErrorBox, ScoreRing, Spinner, useWorkflow } from "../components/ui";
+import { Brand, ErrorBox, ScoreRing, Spinner, UnverifiedEvidenceNote, useWorkflow } from "../components/ui";
 import { useT } from "../lib/i18n";
 
 type Step = "welcome" | "career" | "profile" | "job" | "working" | "done";
@@ -99,6 +99,10 @@ export default function Onboarding({ user }: { user: User }) {
   }, []);
 
   const resumeFromStatus = async (current: OnboardingStatus) => {
+    if (current.status === "reset") {
+      setStep("welcome");
+      return;
+    }
     if (current.latest_job?.status === "analyzing") {
       setJobId(current.latest_job.id);
       setPipelineHint("Analyzing the job ad…");
@@ -293,6 +297,7 @@ export default function Onboarding({ user }: { user: User }) {
       {step === "welcome" && <WelcomeStep onContinue={() => setStep("career")} />}
       {step === "career" && (
         <CareerStep
+          hasExistingCareer={Boolean(status?.experience_count)}
           onDone={async () => {
             const next = await api.get<OnboardingStatus>("/api/onboarding");
             setStatus(next);
@@ -371,7 +376,7 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
   );
 }
 
-function CareerStep({ onDone }: { onDone: () => Promise<void> }) {
+function CareerStep({ onDone, hasExistingCareer }: { onDone: () => Promise<void>; hasExistingCareer: boolean }) {
   const { t } = useT();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -395,7 +400,8 @@ function CareerStep({ onDone }: { onDone: () => Promise<void> }) {
     setBusy(true);
     setError(null);
     try {
-      const result = await api.post<IngestResult>("/api/career/ingest-text", { text, doc_type: "cv" });
+      const accepted = await api.post<{ document_id: string }>("/api/career/ingest-text", { text, doc_type: "cv" });
+      const result = await waitForCareerIngest(accepted.document_id);
       await finishIngest(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("onboarding.extractFailed"));
@@ -414,7 +420,8 @@ function CareerStep({ onDone }: { onDone: () => Promise<void> }) {
       fd.append("file", file);
       fd.append("doc_type", "cv");
       const doc = await api.upload<{ id: string }>("/api/career/documents", fd);
-      const result = await api.post<IngestResult>(`/api/career/documents/${doc.id}/ingest`);
+      await api.post(`/api/career/documents/${doc.id}/ingest`);
+      const result = await waitForCareerIngest(doc.id);
       await finishIngest(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("onboarding.uploadFailed"));
@@ -444,6 +451,11 @@ function CareerStep({ onDone }: { onDone: () => Promise<void> }) {
       ) : (
         <button className="primary mt" onClick={ingestText} disabled={!text.trim()}>
           <Sparkles aria-hidden /> {t("onboarding.extractPasted")}
+        </button>
+      )}
+      {hasExistingCareer && !busy && (
+        <button className="mt" onClick={() => void onDone()}>
+          {t("onboarding.continueExisting")}
         </button>
       )}
     </div>
@@ -714,7 +726,8 @@ function DoneStep({
 }) {
   const { t } = useT();
   const score = summary?.score;
-  const below = !!score && score.overall_score < score.threshold;
+  const below = !!score && (score.coverage ?? 1) > 0 && score.overall_score < score.threshold;
+  const unevaluated = !!score && (score.coverage ?? 1) <= 0;
   return (
     <div className="panel">
       <h1 className="page-title"><PartyPopper className="page-title-icon" aria-hidden /> {t("onboarding.doneTitle")}</h1>
@@ -725,13 +738,29 @@ function DoneStep({
       </p>
       {score && (
         <div className="mt">
-          <ScoreRing score={score.overall_score} threshold={score.threshold} low={score.overall_score_low} high={score.overall_score_high} />
+          <ScoreRing score={score.overall_score} threshold={score.threshold} low={score.overall_score_low} high={score.overall_score_high} coverage={score.coverage} />
+        </div>
+      )}
+      <UnverifiedEvidenceNote count={score?.unverified_evidence_count} />
+      {unevaluated && (
+        <div className="alert warn">
+          {t("onboarding.unevaluated")}
         </div>
       )}
       {below && (
         <div className="alert warn">
           {t("onboarding.belowThreshold")}
         </div>
+      )}
+      {!!score?.unknown_count && score.unknown_count > 0 && !unevaluated && (
+        <p className="small muted mt">
+          {t("score.unknownNote", {
+            n: score.unknown_count,
+            coverage: score.coverage != null && score.coverage < 1
+              ? t("score.unknownCoverage", { pct: Math.round(score.coverage * 100) })
+              : "",
+          })}
+        </p>
       )}
       <ul className="onboard-list">
         <li>{(summary?.experienceCount ?? 0) === 1 ? t("onboarding.experiencesStored", { n: summary?.experienceCount ?? 0 }) : t("onboarding.experiencesStoredPlural", { n: summary?.experienceCount ?? 0 })}</li>

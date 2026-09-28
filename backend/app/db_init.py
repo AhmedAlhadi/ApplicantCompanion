@@ -89,6 +89,22 @@ def _ensure_additive_columns() -> None:
             "ALTER TABLE certifications ADD COLUMN credential_type VARCHAR(64) NOT NULL DEFAULT ''"
         )
 
+    document_cols = _table_columns(insp, "career_documents")
+    if document_cols:
+        if "ingest_status" not in document_cols:
+            statements.append(
+                "ALTER TABLE career_documents ADD COLUMN ingest_status VARCHAR(32) NOT NULL DEFAULT 'idle'"
+            )
+        if "ingest_error" not in document_cols:
+            statements.append(
+                "ALTER TABLE career_documents ADD COLUMN ingest_error TEXT NOT NULL DEFAULT ''"
+            )
+        if "ingest_result" not in document_cols:
+            statements.append(
+                "ALTER TABLE career_documents ADD COLUMN ingest_result "
+                f"JSON NOT NULL DEFAULT {_json_default('{}')}"
+            )
+
     user_cols = _table_columns(insp, "users")
     if user_cols:
         if "google_sub" not in user_cols:

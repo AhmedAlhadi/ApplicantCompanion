@@ -156,7 +156,10 @@ def index_entity(db: Session, entity_type: str, entity_id: str) -> None:
 def index_all_for_user(db: Session, user_id: str) -> int:
     count = 0
     for entity_type, model in _MODEL_FOR.items():
-        for (entity_id,) in db.query(model.id).filter(model.user_id == user_id):
+        query = db.query(model.id).filter(model.user_id == user_id)
+        if hasattr(model, "is_deleted"):
+            query = query.filter(model.is_deleted == False)  # noqa: E712
+        for (entity_id,) in query:
             index_entity(db, entity_type, entity_id)
             count += 1
     return count
@@ -173,17 +176,27 @@ def _keyword_score(query_tokens: set[str], text: str) -> float:
 _indexed_users: set[str] = set()
 
 
+def invalidate_user_index(user_id: str | None = None) -> None:
+    """Force the next retrieval to reindex this user (or every cached user)."""
+    if user_id is None:
+        _indexed_users.clear()
+        return
+    _indexed_users.discard(user_id)
+
+
 def _ensure_indexed(db: Session, user_id: str) -> None:
     """Lazy per-user indexing.
 
     The in-process vector backend does not survive process restarts, and the
     seeder may run in a different process than the API. On first retrieval per
     user per process, (re)index that user's entities — idempotent for Qdrant.
+    Career writes must call ``invalidate_user_index`` so newly ingested rows
+    are not skipped by this one-shot cache.
     """
     if user_id in _indexed_users:
         return
-    _indexed_users.add(user_id)
     index_all_for_user(db, user_id)
+    _indexed_users.add(user_id)
 
 
 def retrieve_evidence(

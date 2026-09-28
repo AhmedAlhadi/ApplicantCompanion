@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Check, FileSearch, Inbox, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { api, waitForCareerIngest } from "../api/client";
 import type {
   CareerAchievement,
+  CareerDocument,
   CareerExperience,
   CareerProject,
   IngestResult,
@@ -751,7 +752,7 @@ function PendingIngestionsTab({
 }
 
 function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => void }) {
-  const docs = useApi<any[]>(() => api.get("/api/career/documents"));
+  const docs = useApi<CareerDocument[]>(() => api.get("/api/career/documents"));
   const [text, setText] = useState("");
   const [docType, setDocType] = useState("cv");
   const [result, setResult] = useState<IngestResult | null>(null);
@@ -787,7 +788,8 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
     setBusy(true);
     setError(null);
     try {
-      const resp = await api.post<IngestResult>("/api/career/ingest-text", { text, doc_type: docType });
+      const accepted = await api.post<{ document_id: string }>("/api/career/ingest-text", { text, doc_type: docType });
+      const resp = await waitForCareerIngest(accepted.document_id);
       handleIngestResult(resp);
       setText("");
       docs.reload();
@@ -802,7 +804,8 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
     setBusy(true);
     setError(null);
     try {
-      const resp = await api.post<IngestResult>(`/api/career/documents/${id}/ingest`);
+      await api.post(`/api/career/documents/${id}/ingest`);
+      const resp = await waitForCareerIngest(id);
       handleIngestResult(resp);
       docs.reload();
     } catch (err: any) {
@@ -868,9 +871,21 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
                   <td>{d.filename}</td>
                   <td>{d.doc_type}</td>
                   <td className="muted">{Math.round(d.size_bytes / 1024)} KB</td>
-                  <td>{d.ingested ? <span className="badge verified">yes</span> : <span className="badge unverified">no</span>}</td>
+                  <td>
+                    {d.ingest_status === "running" ? (
+                      <span className="badge">extracting…</span>
+                    ) : d.ingest_status === "failed" ? (
+                      <span className="badge unverified">failed</span>
+                    ) : d.ingested ? (
+                      <span className="badge verified">yes</span>
+                    ) : (
+                      <span className="badge unverified">no</span>
+                    )}
+                  </td>
                   <td style={{ textAlign: "right" }}>
-                    {!d.ingested && <button className="sm" onClick={() => ingestDoc(d.id)} disabled={busy}>Run extraction</button>}
+                    {(!d.ingested || d.ingest_status === "failed") && d.ingest_status !== "running" && (
+                      <button className="sm" onClick={() => ingestDoc(d.id)} disabled={busy}>Run extraction</button>
+                    )}
                   </td>
                 </tr>
               ))}

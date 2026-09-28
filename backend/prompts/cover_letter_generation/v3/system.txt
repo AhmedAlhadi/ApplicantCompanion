@@ -51,6 +51,11 @@ information or personal social-media activity.
 
 KEEP IT TO ONE PAGE: 3–5 focused paragraphs.
 
+UNVERIFIED EXTRACTED FACTS
+Records marked `unverified` or `needs_review` ARE valid source material. Use
+them in the letter when they support the case. Do not drop a true achievement
+only because the user has not yet marked it verified.
+
 OUTPUT
 Return ONLY JSON matching GeneratedCoverLetter.
 Write salutation, paragraphs, subject, and closing in the injected OUTPUT LANGUAGE.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from app.llm import mock_logic
 from app.scoring.engine import DEFAULT_WEIGHTS, normalize_weights
+from conftest import post_ingest_text
 
 
 NURSE_CV = """
@@ -114,9 +115,8 @@ def test_teacher_electrician_sales_extraction(client, auth_headers):
         (ELECTRICIAN_CV, ("electrical", "apprenticeship")),
         (SALES_CV, ("sales", "operations", "inventory")),
     ):
-        resp = client.post("/api/career/ingest-text", headers=auth_headers, json={"text": cv, "doc_type": "cv"})
-        assert resp.status_code == 200, resp.text
-        _confirm_pending(client, auth_headers, resp.json().get("pending_ingestion_id"))
+        body = post_ingest_text(client, auth_headers, {"text": cv, "doc_type": "cv"})
+        _confirm_pending(client, auth_headers, body.get("pending_ingestion_id"))
 
     skills = client.get("/api/career/skills", headers=auth_headers).json()
     by_name = {s["name"].lower(): s["category"] for s in skills}
@@ -131,9 +131,8 @@ def test_teacher_electrician_sales_extraction(client, auth_headers):
 
 
 def test_nurse_ingestion_and_search(client, auth_headers):
-    resp = client.post("/api/career/ingest-text", headers=auth_headers, json={"text": NURSE_CV, "doc_type": "cv"})
-    assert resp.status_code == 200, resp.text
-    _confirm_pending(client, auth_headers, resp.json().get("pending_ingestion_id"))
+    body = post_ingest_text(client, auth_headers, {"text": NURSE_CV, "doc_type": "cv"})
+    _confirm_pending(client, auth_headers, body.get("pending_ingestion_id"))
     skills = client.get("/api/career/skills", headers=auth_headers).json()
     nurse_names = ("patient care", "iv therapy", "charting", "infection control")
     nurse_skills = [s for s in skills if s["name"].lower() in nurse_names]

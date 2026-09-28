@@ -1,5 +1,7 @@
 """Professional knowledge CRUD, ingestion, retrieval, and role linking."""
 
+from conftest import post_ingest_text
+
 
 def test_knowledge_crud_and_role_link(client, auth_headers):
     exp = client.post(
@@ -82,12 +84,11 @@ January 2020 - December 2023
 SKILLS
 Python, SQL
 """
-    resp = client.post("/api/career/ingest-text", headers=auth_headers, json={"text": text, "doc_type": "cv"})
-    assert resp.status_code == 200, resp.text
-    auto = resp.json().get("auto_applied") or {}
+    body = post_ingest_text(client, auth_headers, {"text": text, "doc_type": "cv"})
+    auto = body.get("auto_applied") or {}
     assert auto.get("professional_knowledge", 0) >= 1
 
-    pending_id = resp.json().get("pending_ingestion_id")
+    pending_id = body.get("pending_ingestion_id")
     if pending_id:
         pending = client.get(f"/api/career/pending-ingestions/{pending_id}", headers=auth_headers).json()
         client.post(
@@ -126,9 +127,8 @@ March 2018 - Present
 SKILLS
 Excel, financial analysis
 """
-    resp = client.post("/api/career/ingest-text", headers=auth_headers, json={"text": text, "doc_type": "cv"})
-    assert resp.status_code == 200, resp.text
-    pending_id = resp.json().get("pending_ingestion_id")
+    body = post_ingest_text(client, auth_headers, {"text": text, "doc_type": "cv"})
+    pending_id = body.get("pending_ingestion_id")
     if pending_id:
         pending = client.get(f"/api/career/pending-ingestions/{pending_id}", headers=auth_headers).json()
         client.post(

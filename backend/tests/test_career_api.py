@@ -1,5 +1,7 @@
 """Career knowledge CRUD, verification, ingestion, provenance, search (§6-7, §32, §47)."""
 
+from conftest import post_ingest_text, wait_for_ingest
+
 
 def test_achievement_parent_links(client, auth_headers):
     """Achievements can link to experience, project, and/or education."""
@@ -86,9 +88,7 @@ January 2021 - December 2023
 SKILLS
 Python, IngestSkillXYZ
 """
-    resp = client.post("/api/career/ingest-text", headers=auth_headers, json={"text": text, "doc_type": "cv"})
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = post_ingest_text(client, auth_headers, {"text": text, "doc_type": "cv"})
     auto = body.get("auto_applied") or body.get("created") or {}
     assert auto["skills"] >= 1
     pending_id = body["pending_ingestion_id"]
@@ -126,6 +126,35 @@ Python, IngestSkillXYZ
     assert evidence[0]["source_document"]
 
 
+def test_document_ingest_is_accepted_and_polled(client, auth_headers):
+    """Ingest returns 202 immediately so proxies cannot 504 the LLM extraction."""
+    upload = client.post(
+        "/api/career/documents",
+        headers=auth_headers,
+        files={"file": ("cv.txt", b"Data Analyst at PollCo\nSkills: PollSkillXYZ\n", "text/plain")},
+        data={"doc_type": "cv"},
+    )
+    assert upload.status_code == 201, upload.text
+    doc_id = upload.json()["id"]
+    assert upload.json()["ingest_status"] == "idle"
+
+    accepted = client.post(f"/api/career/documents/{doc_id}/ingest", headers=auth_headers)
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json()["status"] == "accepted"
+    assert accepted.json()["document_id"] == doc_id
+
+    again = client.post(f"/api/career/documents/{doc_id}/ingest", headers=auth_headers)
+    assert again.status_code == 202
+    assert again.json()["document_id"] == doc_id
+
+    result = wait_for_ingest(client, auth_headers, doc_id)
+    assert result.get("auto_applied") or result.get("created")
+    fetched = client.get(f"/api/career/documents/{doc_id}", headers=auth_headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["ingest_status"] == "completed"
+    assert fetched.json()["ingested"] is True
+
+
 def test_ingestion_merge_proposal_for_existing_experience(client, auth_headers):
     """Additional details about an existing role should propose merge, not a duplicate."""
     created = client.post("/api/career/experiences", headers=auth_headers, json={
@@ -143,9 +172,8 @@ Engineer at MergeCo
 January 2020 - Present
 - Reduced API latency by 40%
 """
-    resp = client.post("/api/career/ingest-text", headers=auth_headers, json={"text": text, "doc_type": "notes"})
-    assert resp.status_code == 200, resp.text
-    pending_id = resp.json()["pending_ingestion_id"]
+    body = post_ingest_text(client, auth_headers, {"text": text, "doc_type": "notes"})
+    pending_id = body["pending_ingestion_id"]
     assert pending_id
 
     pending = client.get(f"/api/career/pending-ingestions/{pending_id}", headers=auth_headers).json()
@@ -214,3 +242,20 @@ def test_education_month_name_dates_fit_varchar10(client, auth_headers):
     assert body["start_date"] == "2013-08"
     assert body["end_date"] is None
     assert len(body["start_date"]) <= 10
+
+
+def test_education_is_indexed_and_searchable_immediately(client, auth_headers):
+    created = client.post(
+        "/api/career/education",
+        headers=auth_headers,
+        json={
+            "institution": "Index Uni",
+            "degree": "BSc UniqueIndexDegreeXYZ",
+            "field_of_study": "Data",
+        },
+    )
+    assert created.status_code == 201, created.text
+    edu_id = created.json()["id"]
+    hits = client.get("/api/career/search?q=UniqueIndexDegreeXYZ", headers=auth_headers).json()
+    assert any(h["entity_id"] == edu_id for h in hits)
+    assert any(h["verification_status"] in ("unverified", "needs_review") for h in hits if h["entity_id"] == edu_id)

@@ -11,7 +11,7 @@ import json
 import re
 from collections import Counter
 
-from ..qualification import degree_level, evaluate_qualification_paths
+from ..qualification import degree_level, evaluate_qualification_paths, resolve_match_status
 from ..services.deadlines import extract_application_deadline, normalize_application_deadline
 from ..services.document_postprocess import (
     _date_sort_key,
@@ -1225,6 +1225,34 @@ def mock_hiring_research(user_message: str) -> dict:
 # ── candidate matching ───────────────────────────────────────────────────────
 
 
+def _structured_fact_items(structured_facts: dict, req_id: str) -> list[dict]:
+    if not isinstance(structured_facts, dict):
+        return []
+    scoped = structured_facts.get(req_id, structured_facts)
+    if not isinstance(scoped, dict):
+        return []
+    items: list[dict] = []
+    for value in scoped.values():
+        if isinstance(value, list):
+            items.extend(item for item in value if isinstance(item, dict))
+    return items
+
+
+def _merge_evidence(*groups: list | None) -> list[dict]:
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for group in groups:
+        for ev in group or []:
+            if not isinstance(ev, dict):
+                continue
+            key = (ev.get("entity_type"), ev.get("entity_id") or ev.get("text"))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(ev)
+    return out
+
+
 def mock_candidate_matching(user_message: str) -> dict:
     payload = _extract_json_block(user_message)
     requirements = payload.get("requirements", [])
@@ -1234,13 +1262,18 @@ def mock_candidate_matching(user_message: str) -> dict:
 
     matches = []
     for req in requirements:
-        req_evidence = evidence_by_requirement.get(req.get("id", ""), evidence)
+        req_id = req.get("id", "")
+        scoped = evidence_by_requirement.get(req_id)
+        req_evidence = _merge_evidence(
+            scoped if scoped else evidence,
+            _structured_fact_items(structured_facts, req_id),
+        )
         ev_tokens = [(ev, content_tokens(ev.get("text", ""))) for ev in req_evidence]
         evaluation = evaluate_qualification_paths(
             req.get("qualification_paths", []),
             structured_facts.get(req.get("id", ""), structured_facts),
         )
-        if evaluation:
+        if evaluation.get("status") == "MATCHED":
             evidence_by_id = {ev.get("entity_id"): ev for ev in req_evidence}
             supporting = [
                 {
@@ -1252,30 +1285,26 @@ def mock_candidate_matching(user_message: str) -> dict:
                 for eid in evaluation.get("evidence_ids", [])
                 if eid in evidence_by_id
             ]
-            status = evaluation["status"]
             matches.append({
                 "requirement_id": req.get("id", ""),
-                "status": status,
+                "status": "MATCHED",
                 "evidence": supporting,
-                "explanation": (
-                    _loc(user_message, "Satisfied an alternative qualification path.", "تم استيفاء مسار تأهيل بديل.")
-                    if status == "MATCHED"
-                    else _loc(
-                        user_message,
-                        "Structured qualification paths were evaluated deterministically.",
-                        "تم تقييم مسارات التأهيل المحددة بشكل حتمي.",
-                    )
+                "explanation": _loc(
+                    user_message,
+                    "Satisfied an alternative qualification path.",
+                    "تم استيفاء مسار تأهيل بديل.",
                 ),
-                "confidence": 0.95 if status != "UNKNOWN" else 0.0,
+                "confidence": 0.95,
                 "match_kind": "direct",
                 "qualification_evaluation": evaluation,
             })
             continue
         req_toks = content_tokens(req.get("text", ""))
         if not req_evidence:
+            status = resolve_match_status(evaluation, "UNKNOWN")
             matches.append({
                 "requirement_id": req.get("id", ""),
-                "status": "UNKNOWN",
+                "status": status,
                 "evidence": [],
                 "explanation": _loc(
                     user_message,
@@ -1284,7 +1313,7 @@ def mock_candidate_matching(user_message: str) -> dict:
                 ),
                 "confidence": 0.0,
                 "match_kind": "direct",
-                "qualification_evaluation": {},
+                "qualification_evaluation": evaluation or {},
             })
             continue
         scored = sorted(
@@ -1337,6 +1366,7 @@ def mock_candidate_matching(user_message: str) -> dict:
                 "No supporting evidence found in the career knowledge base.",
                 "لم يُعثر على دليل داعم في قاعدة المعرفة المهنية.",
             )
+        status = resolve_match_status(evaluation, status)
         matches.append({
             "requirement_id": req.get("id", ""),
             "status": status,
@@ -1344,7 +1374,7 @@ def mock_candidate_matching(user_message: str) -> dict:
             "explanation": expl,
             "confidence": round(conf, 2),
             "match_kind": kind,
-            "qualification_evaluation": {},
+            "qualification_evaluation": evaluation or {},
         })
     return {"matches": matches}
 

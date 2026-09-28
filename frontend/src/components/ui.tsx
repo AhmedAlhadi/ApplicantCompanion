@@ -19,7 +19,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { api, getToken, setToken, workflowEventsUrl } from "../api/client";
+import { api, setToken, subscribeWorkflowEvents } from "../api/client";
 import type { User, WorkflowRun } from "../api/types";
 import { useT } from "../lib/i18n";
 import { useTheme } from "../lib/theme";
@@ -226,32 +226,57 @@ export function Layout({ user }: { user: User }) {
   );
 }
 
-export function ScoreRing({ score, threshold, low, high }: { score: number; threshold?: number; low?: number | null; high?: number | null }) {
+export function ScoreRing({
+  score,
+  threshold,
+  low,
+  high,
+  coverage,
+}: {
+  score: number;
+  threshold?: number;
+  low?: number | null;
+  high?: number | null;
+  coverage?: number | null;
+}) {
   const { t } = useT();
+  const unevaluated = coverage != null && coverage <= 0;
   const pct = Math.round(score * 100);
-  const strong = threshold === undefined ? pct >= 80 : score >= threshold;
+  const strong = !unevaluated && (threshold === undefined ? pct >= 80 : score >= threshold);
   const hasRange =
-    low != null && high != null && (Math.round(low * 100) !== pct || Math.round(high * 100) !== pct);
+    !unevaluated &&
+    low != null &&
+    high != null &&
+    (Math.round(low * 100) !== pct || Math.round(high * 100) !== pct);
   return (
     <div className="score-ring">
-      <div className="score-big" style={{ color: strong ? "var(--ok)" : "var(--warn)" }}>
-        {pct}%
+      <div className="score-big" style={{ color: unevaluated ? "var(--muted)" : strong ? "var(--ok)" : "var(--warn)" }}>
+        {unevaluated ? t("score.unevaluated") : `${pct}%`}
       </div>
       <div>
-        <span className={`badge ${strong ? "strong" : "moderate"}`}>
-          {strong ? t("score.strong") : t("score.moderate")}
+        <span className={`badge ${unevaluated ? "UNKNOWN" : strong ? "strong" : "moderate"}`}>
+          {unevaluated ? t("score.unevaluatedBadge") : strong ? t("score.strong") : t("score.moderate")}
         </span>
+        {unevaluated && (
+          <div className="small muted mt">{t("score.unevaluatedHint")}</div>
+        )}
         {hasRange && (
           <div className="small muted mt">
             {t("score.possibleRange", { low: Math.round(low * 100), high: Math.round(high * 100) })}
           </div>
         )}
-        {threshold !== undefined && (
+        {!unevaluated && threshold !== undefined && (
           <div className="small muted mt">{t("score.threshold", { pct: Math.round(threshold * 100) })}</div>
         )}
       </div>
     </div>
   );
+}
+
+export function UnverifiedEvidenceNote({ count }: { count?: number | null }) {
+  const { t } = useT();
+  if (!count) return null;
+  return <div className="alert warn mt">{t("score.unverifiedNote")}</div>;
 }
 
 export function ProgressStages({ workflow }: { workflow: WorkflowRun | null }) {
@@ -291,7 +316,7 @@ export function useWorkflow(runId: string | null, pollUrl: string | null, onDone
   useEffect(() => {
     if (!pollUrl) return;
     let stopped = false;
-    let es: EventSource | null = null;
+    const abort = new AbortController();
     const pollingDeadline = Date.now() + 21 * 60 * 1000;
     const poll = async () => {
       try {
@@ -322,20 +347,19 @@ export function useWorkflow(runId: string | null, pollUrl: string | null, onDone
     let timer = window.setTimeout(poll, 400);
     if (runId) {
       // SSE for live updates; polling continues as fallback
-      es = new EventSource(workflowEventsUrl(runId));
-      es.onmessage = (e) => {
-        try {
-          const parsed = JSON.parse(e.data);
-          if (parsed?.data?.stages) setRun(parsed.data);
-        } catch {
-          /* ignore */
-        }
-      };
+      void subscribeWorkflowEvents(
+        runId,
+        (parsed) => {
+          const data = (parsed as { data?: WorkflowRun })?.data;
+          if (data?.stages) setRun(data);
+        },
+        abort.signal,
+      );
     }
     return () => {
       stopped = true;
       window.clearTimeout(timer);
-      es?.close();
+      abort.abort();
     };
   }, [runId, pollUrl]);
   return run;

@@ -4,7 +4,7 @@ import { FileText, Files, Mail, RefreshCw, Sparkles } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { AppDocument, Application, JobScore, Strategy, Template, UserSettings } from "../api/types";
 import { openCoachWidget } from "../components/coach/CoachWidget";
-import { Empty, ErrorBox, ScoreRing, Spinner, useApi, useWorkflow } from "../components/ui";
+import { Empty, ErrorBox, ScoreRing, Spinner, UnverifiedEvidenceNote, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { showAts } from "../lib/ats";
 import { useT } from "../lib/i18n";
@@ -155,7 +155,14 @@ export default function ApplicationDetail() {
 
       {a.fit_score != null && (
         <div className="panel">
-          <ScoreRing score={a.fit_score} threshold={score.data?.threshold} />
+          <ScoreRing
+            score={score.data?.overall_score ?? a.fit_score}
+            threshold={score.data?.threshold}
+            low={score.data?.overall_score_low}
+            high={score.data?.overall_score_high}
+            coverage={score.data?.coverage}
+          />
+          <UnverifiedEvidenceNote count={score.data?.unverified_evidence_count} />
         </div>
       )}
 

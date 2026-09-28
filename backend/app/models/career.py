@@ -68,6 +68,9 @@ class CareerDocument(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base)
     size_bytes: Mapped[int] = mapped_column(default=0)
     extracted_text: Mapped[str] = mapped_column(Text, default="")
     ingested: Mapped[bool] = mapped_column(default=False)
+    ingest_status: Mapped[str] = mapped_column(String(32), default="idle")  # idle|running|completed|failed
+    ingest_error: Mapped[str] = mapped_column(Text, default="")
+    ingest_result: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Experience(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):

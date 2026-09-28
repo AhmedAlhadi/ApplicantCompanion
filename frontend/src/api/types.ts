@@ -33,6 +33,7 @@ export interface AdminUser {
   avatar_url: string | null;
   job_count: number;
   application_count: number;
+  onboarding_status: "in_progress" | "completed" | "skipped" | "reset" | null;
 }
 
 export interface Job {
@@ -125,6 +126,8 @@ export interface JobScore {
   threshold: number;
   recommendation: string;
   unknown_count: number;
+  unverified_evidence_count?: number;
+  unverified_match_count?: number;
   strong_matches: string[];
   partial_matches: string[];
   gaps: string[];
@@ -364,8 +367,21 @@ export interface IngestResult {
   note?: string;
 }
 
+export interface CareerDocument {
+  id: string;
+  filename: string;
+  content_type: string;
+  doc_type: string;
+  size_bytes: number;
+  ingested: boolean;
+  ingest_status: "idle" | "running" | "completed" | "failed";
+  ingest_error?: string;
+  ingest_result?: Partial<IngestResult> | null;
+  created_at: string;
+}
+
 export interface OnboardingStatus {
-  status: "in_progress" | "completed" | "skipped";
+  status: "in_progress" | "completed" | "skipped" | "reset";
   has_profile: boolean;
   experience_count: number;
   pending_count: number;

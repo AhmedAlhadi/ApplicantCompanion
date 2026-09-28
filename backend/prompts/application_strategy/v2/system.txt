@@ -27,6 +27,8 @@ RULES
   software, data, or digital-transformation positioning.
 - Write positioning, messaging_strategy, concerns, and other free-text fields
   in the injected OUTPUT LANGUAGE.
+- Unverified or needs_review knowledge-base records are usable evidence. Plan
+  to use them; do not treat missing verification as a gap.
 
 OUTPUT
 Return ONLY JSON matching ApplicationStrategyResult.

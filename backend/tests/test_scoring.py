@@ -90,6 +90,22 @@ def test_candidate_no_evidence_is_unknown_not_failed():
     assert result["overall_score_low"] == 0.0
     assert result["overall_score_high"] == 1.0
     assert result["coverage"] == 0.0
+    assert result["unverified_evidence_count"] == 0
+
+
+def test_unverified_evidence_is_counted_not_excluded():
+    reqs = [_req("Power BI dashboards", "technical_skill")]
+    match = _match(reqs[0], "MATCHED")
+    match.evidence = [{
+        "entity_type": "experience",
+        "entity_id": "e1",
+        "evidence": "Built Power BI dashboards",
+        "source": "needs_review",
+    }]
+    result = compute_score(reqs, [match])
+    assert result["overall_score"] == 1.0
+    assert result["unverified_evidence_count"] == 1
+    assert result["unverified_match_count"] == 1
 
 
 def test_unknowns_produce_score_range():
@@ -168,4 +184,19 @@ def test_skills_and_tools_weight_alias():
     canonical = compute_score(reqs, matches, weights={"technical_skills": 1.0})
     assert aliased["overall_score"] == canonical["overall_score"] == 1.0
     assert "technical_skills" in aliased["category_scores"]
+
+
+def test_failed_qualification_evaluation_does_not_wipe_matched_status():
+    reqs = [_req("Digital transformation experience", "experience", importance="CRITICAL")]
+    match = _match(reqs[0], "MATCHED")
+    match.qualification_evaluation = {"status": "NOT_MATCHED"}
+    result = compute_score(reqs, [match])
+    assert result["overall_score"] == 1.0
+    assert result["strong_matches"] == ["Digital transformation experience"]
+
+
+def test_empty_requirements_have_zero_coverage():
+    result = compute_score([], [])
+    assert result["coverage"] == 0.0
+    assert result["overall_score"] == 0.0
 

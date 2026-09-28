@@ -5,6 +5,8 @@ import re
 from datetime import date
 from typing import Any
 
+POSITIVE_MATCH_STATUSES = frozenset({"MATCHED", "PARTIALLY_MATCHED", "TRANSFERABLE"})
+
 DEGREE_LEVELS = {
     "secondary school": 1,
     "secondary education": 1,
@@ -129,16 +131,20 @@ def _predicate_result(
         educations = facts.get("education", [])
         required = degree_level(str(predicate.get("minimum_level") or value))
         levels = [(degree_level(str(item.get("degree") or item.get("text") or "")), item) for item in educations]
-        actual = max((level for level, _ in levels), default=0)
-        if required and educations:
+        parsed = [(level, item) for level, item in levels if level]
+        actual = max((level for level, _ in parsed), default=0)
+        if required and parsed:
             result = actual >= required
-            evidence_ids = [str(item.get("entity_id")) for level, item in levels if level == actual and item.get("entity_id")]
+            evidence_ids = [str(item.get("entity_id")) for level, item in parsed if level == actual and item.get("entity_id")]
     elif kind == "relevant_experience":
         experiences = facts.get("experience", [])
         years, evidence_ids = overlapping_experience_years(experiences, terms=terms, as_of=as_of)
         actual = years
         minimum = predicate.get("minimum_years")
-        if minimum is not None and experiences:
+        # Only fail or pass when dated, in-scope intervals exist. Missing dates
+        # or domain-term overlap is UNKNOWN so the matcher can still use the
+        # stored (possibly unverified) role text.
+        if minimum is not None and evidence_ids:
             result = years >= float(minimum)
     elif kind in {"education_field", "certification", "language", "skill", "domain_expertise"}:
         fact_key = {
@@ -223,3 +229,22 @@ def evaluate_qualification_paths(
         "path_results": path_results,
         "evidence_ids": evidence_ids,
     }
+
+
+def resolve_match_status(evaluation: dict[str, Any] | None, model_status: str | None) -> str:
+    """Combine deterministic qualification results with the matcher verdict.
+
+    Proven MATCHED facts always win. A failed structured path must not wipe a
+    positive evidence-based verdict — extracted CVs often lack dates or the
+    exact JD phrasing the predicates look for, while the role text still
+    supports the requirement.
+    """
+    model_status = model_status or "UNKNOWN"
+    ev_status = (evaluation or {}).get("status")
+    if ev_status == "MATCHED":
+        return "MATCHED"
+    if model_status in POSITIVE_MATCH_STATUSES:
+        return model_status
+    if ev_status == "NOT_MATCHED":
+        return "NOT_MATCHED"
+    return model_status

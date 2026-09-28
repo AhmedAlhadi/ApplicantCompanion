@@ -12,7 +12,9 @@ from ..services.settings import get_user_setting, set_user_setting
 router = APIRouter(prefix="/api", tags=["onboarding"])
 
 ONBOARDING_KEY = "onboarding_status"
-TERMINAL = {"completed", "skipped", "in_progress"}
+RESET_STATUS = "reset"
+# Stored values that must not be overwritten by auto-complete-from-experience.
+STORED_STATUSES = {"completed", "skipped", "in_progress", RESET_STATUS}
 
 
 def _experience_count(db: Session, user_id: str) -> int:
@@ -25,7 +27,7 @@ def _experience_count(db: Session, user_id: str) -> int:
 
 def _resolve_status(db: Session, user: User, experience_count: int) -> str:
     status = get_user_setting(db, user.id, ONBOARDING_KEY, None)
-    if status in TERMINAL:
+    if status in STORED_STATUSES:
         return status
     if experience_count > 0:
         set_user_setting(db, user.id, ONBOARDING_KEY, "completed")
@@ -34,6 +36,11 @@ def _resolve_status(db: Session, user: User, experience_count: int) -> str:
     set_user_setting(db, user.id, ONBOARDING_KEY, "in_progress")
     db.commit()
     return "in_progress"
+
+
+def reset_onboarding(db: Session, user_id: str) -> None:
+    """Force the upload wizard on next login without deleting career data."""
+    set_user_setting(db, user_id, ONBOARDING_KEY, RESET_STATUS)
 
 
 def _status_payload(db: Session, user: User) -> dict:

@@ -17,6 +17,7 @@ ratio so the UI can communicate how much of the JD was actually evaluated.
 from __future__ import annotations
 
 from ..models import JobRequirement, RequirementMatch
+from ..qualification import resolve_match_status
 
 DEFAULT_WEIGHTS: dict[str, float] = {
     "mandatory_qualifications": 0.25,
@@ -57,6 +58,32 @@ PARTIAL_FLOOR = 0.3
 PARTIAL_SPAN = 0.4  # PARTIALLY_MATCHED ∈ [0.3, 0.7]
 
 IMPORTANCE_WEIGHTS = {"CRITICAL": 4.0, "HIGH": 3.0, "MEDIUM": 2.0, "LOW": 1.0}
+
+UNVERIFIED_STATUSES = frozenset({"unverified", "needs_review"})
+
+
+def _evidence_status(item: dict) -> str:
+    return str(item.get("verification_status") or item.get("source") or "").strip().lower()
+
+
+def unverified_evidence_summary(matches: list[RequirementMatch] | list[dict]) -> dict[str, int]:
+    """Count cited evidence that is stored but not user-verified."""
+    evidence_count = 0
+    match_count = 0
+    for match in matches:
+        items = match.evidence if hasattr(match, "evidence") else match.get("evidence") or []
+        unverified = [
+            item for item in items
+            if isinstance(item, dict) and _evidence_status(item) in UNVERIFIED_STATUSES
+        ]
+        if unverified:
+            match_count += 1
+            evidence_count += len(unverified)
+    return {
+        "unverified_evidence_count": evidence_count,
+        "unverified_match_count": match_count,
+    }
+
 
 # JobRequirement.category -> scoring category
 CATEGORY_MAP = {
@@ -150,13 +177,8 @@ def compute_score(
     for req in requirements:
         match = match_by_req.get(req.id)
         status = match.status if match else "UNKNOWN"
-        # A structured alternative group is one requirement: ANY qualifying
-        # path earns one match, and unsatisfied paths are never double-counted.
         evaluation = getattr(match, "qualification_evaluation", None) if match else None
-        if evaluation and evaluation.get("status") in {
-            "MATCHED", "NOT_MATCHED", "UNKNOWN",
-        }:
-            status = evaluation["status"]
+        status = resolve_match_status(evaluation, status)
         imp_w = IMPORTANCE_WEIGHTS.get(req.importance, 2.0)
         if req.requirement_type == "preferred":
             imp_w *= 0.5
@@ -197,7 +219,7 @@ def compute_score(
     coverage = (
         evaluated_importance_weight / total_importance_weight
         if total_importance_weight > 0
-        else 1.0
+        else 0.0
     )
 
     return {
@@ -214,4 +236,5 @@ def compute_score(
         "partial_matches": partial,
         "gaps": gaps,
         "transferable": transferable,
+        **unverified_evidence_summary(matches),
     }

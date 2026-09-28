@@ -34,6 +34,15 @@ def test_unauthorized_access(client):
     assert client.get("/api/jobs").status_code == 401
     assert client.get("/api/applications").status_code == 401
     assert client.get("/api/dashboard/stats").status_code == 401
+    assert client.get("/api/workflows/00000000-0000-0000-0000-000000000000/events").status_code == 401
+
+
+def test_workflow_events_accepts_bearer_token(client, auth_headers):
+    resp = client.get(
+        "/api/workflows/00000000-0000-0000-0000-000000000000/events",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
 
 
 def test_me(client, auth_headers):

@@ -7,7 +7,53 @@ from copy import deepcopy
 import httpx
 
 from app.llm.base import LLMRequest
+from app.llm.json_schema import openai_strict_schema, schema_name
 from app.llm.providers import _openai_compatible_chat
+from app.schemas.agents import JDAnalysisResult, MatchingResult
+
+_UNSUPPORTED_STRICT = {
+    "default",
+    "title",
+    "minItems",
+    "minLength",
+    "minimum",
+    "maximum",
+    "pattern",
+    "format",
+}
+
+
+def _assert_openai_strict(node, path="$"):
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            _assert_openai_strict(item, f"{path}[{index}]")
+        return
+    if not isinstance(node, dict):
+        return
+    if "$ref" in node:
+        assert set(node) == {"$ref"}, path
+        return
+    for key in _UNSUPPORTED_STRICT:
+        assert key not in node, f"{path} still has {key}"
+    if node.get("type") == "object" or "properties" in node:
+        assert node.get("additionalProperties") is False, path
+        assert list(node.get("properties") or {}) == list(node.get("required") or []), path
+    for key, value in node.items():
+        _assert_openai_strict(value, f"{path}.{key}")
+
+
+def test_schema_name_is_openai_safe():
+    assert schema_name("repair-test") == "repair-test"
+    assert schema_name("jd_analysis") == "jd_analysis"
+    assert schema_name("a/b c") == "a_b_c"
+
+
+def test_agent_schemas_become_openai_strict():
+    for model in (JDAnalysisResult, MatchingResult):
+        schema = openai_strict_schema(model.model_json_schema())
+        _assert_openai_strict(schema)
+        assert schema["type"] == "object"
+        assert "requirements" in schema["properties"] or "matches" in schema["properties"]
 
 
 def _response(status: int, payload: dict) -> httpx.Response:
@@ -50,6 +96,10 @@ def test_openai_compatible_falls_back_when_strict_schema_is_unsupported(monkeypa
 
     assert result.data == {"answer": "ok"}
     assert calls[0]["response_format"]["type"] == "json_schema"
+    assert calls[0]["response_format"]["json_schema"]["strict"] is True
+    assert calls[0]["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
+    assert calls[0]["response_format"]["json_schema"]["schema"]["required"] == ["answer"]
+    assert "default" not in json.dumps(calls[0]["response_format"]["json_schema"]["schema"])
     assert calls[1]["response_format"] == {"type": "json_object"}
 
 

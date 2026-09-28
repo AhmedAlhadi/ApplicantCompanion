@@ -5,6 +5,10 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
+from app.agents.base import AgentError
+from app.agents.job_analysis import JobAnalysisAgent
 from app.llm.mock_logic import mock_candidate_matching, mock_jd_analysis
 from app.models import JobRequirement, RequirementMatch
 from app.qualification import degree_level, evaluate_qualification_paths, overlapping_experience_years
@@ -31,8 +35,23 @@ def test_jd_schema_normalizes_common_provider_drift():
 
 def test_reliable_prompts_and_structured_retrieval_are_enabled():
     assert load_prompt("jd_analysis").version == "v3"
-    assert load_prompt("candidate_matching").version == "v3"
+    assert load_prompt("candidate_matching").version == "v4"
     assert {"education", "certification", "language"} <= set(INDEXED_ENTITY_TYPES)
+
+
+def test_job_analysis_rejects_empty_requirements():
+    agent = JobAnalysisAgent()
+    with pytest.raises(AgentError, match="no requirements"):
+        agent._parse({"position": {"job_title": "Digital Impact Manager"}, "requirements": []})
+
+
+def test_job_analysis_accepts_extracted_requirements():
+    result = JobAnalysisAgent()._parse({
+        "position": {"job_title": "Digital Impact Manager", "organization": "UNICEF"},
+        "requirements": [{"text": "Advanced university degree", "category": "education"}],
+    })
+    assert len(result.requirements) == 1
+    assert result.requirements[0].text == "Advanced university degree"
 
 
 def test_explicit_any_of_paths_are_normalized_without_inference():
@@ -303,3 +322,62 @@ def test_three_tier_secondary_with_insufficient_years_does_not_match():
     }
     result = evaluate_qualification_paths(_three_tier_paths(), facts, as_of=date(2024, 1, 1))
     assert result["status"] == "NOT_MATCHED"
+
+
+def test_undated_experience_is_unknown_not_failed():
+    paths = [{"predicates": [{"kind": "relevant_experience", "minimum_years": 5, "terms": ["digital"]}]}]
+    facts = {
+        "experience": [{
+            "entity_id": "e1",
+            "text": "Digital Impact Manager at UNICEF",
+        }],
+    }
+    result = evaluate_qualification_paths(paths, facts, as_of=date(2024, 1, 1))
+    assert result["status"] == "UNKNOWN"
+
+
+def test_unparsed_degree_is_unknown_not_failed():
+    paths = [{"predicates": [{"kind": "degree_level", "minimum_level": "bachelor"}]}]
+    facts = {
+        "education": [{"entity_id": "ed1", "degree": "Computer Science, University of Jordan", "text": "CS"}],
+    }
+    result = evaluate_qualification_paths(paths, facts, as_of=date(2024, 1, 1))
+    assert result["status"] == "UNKNOWN"
+
+
+def test_resolve_match_status_keeps_positive_model_verdict():
+    from app.qualification import resolve_match_status
+    assert resolve_match_status({"status": "NOT_MATCHED"}, "MATCHED") == "MATCHED"
+    assert resolve_match_status({"status": "NOT_MATCHED"}, "PARTIALLY_MATCHED") == "PARTIALLY_MATCHED"
+    assert resolve_match_status({"status": "MATCHED"}, "NOT_MATCHED") == "MATCHED"
+    assert resolve_match_status({"status": "NOT_MATCHED"}, "UNKNOWN") == "NOT_MATCHED"
+    assert resolve_match_status({"status": "UNKNOWN"}, "UNKNOWN") == "UNKNOWN"
+    assert resolve_match_status({}, "TRANSFERABLE") == "TRANSFERABLE"
+
+
+def test_failed_qualification_paths_do_not_wipe_evidence_match():
+    paths = [{"predicates": [
+        {"kind": "relevant_experience", "minimum_years": 8, "terms": ["digital transformation"]},
+    ]}]
+    payload = {
+        "requirements": [{
+            "id": "r1",
+            "text": "Digital transformation experience",
+            "qualification_paths": paths,
+        }],
+        "evidence_by_requirement": {"r1": [{
+            "entity_type": "experience",
+            "entity_id": "e1",
+            "text": "Led digital transformation programmes at UNICEF",
+            "verification_status": "needs_review",
+        }]},
+        "structured_facts": {"r1": {"experience": [{
+            "entity_type": "experience",
+            "entity_id": "e1",
+            "text": "Led digital transformation programmes at UNICEF",
+            "verification_status": "needs_review",
+        }]}},
+    }
+    matched = mock_candidate_matching(f"```json\n{json.dumps(payload)}\n```")["matches"][0]
+    assert matched["status"] in {"MATCHED", "PARTIALLY_MATCHED", "TRANSFERABLE"}
+    assert matched["qualification_evaluation"]["status"] in {"NOT_MATCHED", "UNKNOWN"}

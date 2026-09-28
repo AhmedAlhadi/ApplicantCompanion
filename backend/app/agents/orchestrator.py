@@ -41,13 +41,14 @@ from ..models import (
     User,
     WorkflowRun,
 )
-from ..qualification import evaluate_qualification_paths
+from ..qualification import evaluate_qualification_paths, resolve_match_status
 from ..retrieval.pipeline import retrieve_evidence
 from ..schemas.agents import HiringContextResult, OrganizationResearchResult
 from ..scoring.engine import compute_score
 from ..services.deadlines import extract_application_deadline
 from ..services.profile_context import profession_context_for
 from ..services.research import extract_urls, gather_snippets
+from ..services.user_errors import public_error
 from ..services.serializers import to_dict
 from .base import AgentContext, AgentError
 from .job_analysis import JobAnalysisAgent
@@ -181,9 +182,10 @@ class Orchestrator:
                 profession_context=profession_context_for(self.db, self.user.id),
             )
         except AgentError as exc:
-            self._stage(run, "ParseJD", "FAILED", str(exc))
+            message = public_error(exc, fallback="We could not analyze this job description. Check the text and try again.")
+            self._stage(run, "ParseJD", "FAILED", message)
             run.status = "FAILED"
-            run.error = f"JD parsing failed: {exc}"
+            run.error = message
             job.status = "failed"
             self.db.commit()
             return run
@@ -221,6 +223,18 @@ class Orchestrator:
             self.db.add(row)
             requirements.append(row)
         self.db.flush()
+        logger.info("ParseJD job=%s requirements=%s", job.id, len(requirements))
+        if not requirements:
+            message = public_error(
+                "no requirements extracted",
+                fallback="We could not find clear requirements in this job description. Try pasting a fuller JD.",
+            )
+            self._stage(run, "ParseJD", "FAILED", message)
+            run.status = "FAILED"
+            run.error = message
+            job.status = "failed"
+            self.db.commit()
+            return run
         self._stage(run, "ParseJD", "COMPLETED")
 
         # 2. Research organization (§12) — failure must not block (§54) ────
@@ -339,14 +353,13 @@ class Orchestrator:
         # 4. Retrieve candidate evidence (§35-36) ─────────────────────────
         self._stage(run, "RetrieveCandidateEvidence", "RUNNING")
         evidence_by_req: dict[str, list[dict]] = {}
-        facts_by_req: dict[str, dict[str, list[dict]]] = {}
         all_evidence: dict[tuple[str, str], dict] = {}
         structured_facts: dict[str, list[dict]] = {
             "education": [
                 {
                     "entity_type": "education",
                     "entity_id": item.id,
-                    "text": " ".join(filter(None, [item.degree, item.field_of_study, item.institution])),
+                    "text": " ".join(filter(None, [item.degree, item.field_of_study, item.institution]))[:600],
                     "degree": item.degree,
                     "field_of_study": item.field_of_study,
                     "verification_status": item.verification_status,
@@ -360,7 +373,7 @@ class Orchestrator:
                 {
                     "entity_type": "certification",
                     "entity_id": item.id,
-                    "text": " ".join(filter(None, [item.name, item.issuer])),
+                    "text": " ".join(filter(None, [item.name, item.issuer]))[:600],
                     "name": item.name,
                     "issuer": item.issuer,
                     "verification_status": item.verification_status,
@@ -374,7 +387,7 @@ class Orchestrator:
                 {
                     "entity_type": "language",
                     "entity_id": item.id,
-                    "text": " ".join(filter(None, [item.language, item.proficiency])),
+                    "text": " ".join(filter(None, [item.language, item.proficiency]))[:600],
                     "language": item.language,
                     "proficiency": item.proficiency,
                     "is_native": item.is_native,
@@ -396,7 +409,7 @@ class Orchestrator:
                         " ".join(item.responsibilities or []),
                         " ".join(item.technologies or []),
                         " ".join(item.domains or []),
-                    ])),
+                    ]))[:600],
                     "start_date": item.start_date,
                     "end_date": item.end_date,
                     "verification_status": item.verification_status,
@@ -410,7 +423,7 @@ class Orchestrator:
                 {
                     "entity_type": "skill",
                     "entity_id": item.id,
-                    "text": " ".join(filter(None, [item.canonical_name, item.category])),
+                    "text": " ".join(filter(None, [item.canonical_name, item.category]))[:600],
                     "name": item.canonical_name,
                     "years_experience": item.years_experience,
                     "verification_status": item.verification_status,
@@ -424,7 +437,7 @@ class Orchestrator:
                 {
                     "entity_type": "professional_knowledge",
                     "entity_id": item.id,
-                    "text": " ".join(filter(None, [item.canonical_name, item.kind, item.depth, item.summary])),
+                    "text": " ".join(filter(None, [item.canonical_name, item.kind, item.depth, item.summary]))[:600],
                     "name": item.canonical_name,
                     "kind": item.kind,
                     "depth": item.depth,
@@ -437,10 +450,15 @@ class Orchestrator:
                 )
             ],
         }
+        for fact_items in structured_facts.values():
+            for payload in fact_items:
+                all_evidence.setdefault(
+                    (payload["entity_type"], payload["entity_id"]),
+                    payload,
+                )
         for req in requirements:
-            # Keep enough scoped candidates to include structured education,
-            # certification, language, and dated experience facts alongside
-            # semantic evidence for compound qualification alternatives.
+            # Keep enough scoped candidates for semantic evidence; shared
+            # structured_facts cover education/skills/experience for every req.
             items = retrieve_evidence(self.db, self.user.id, req.text, limit=12)
             ev_payloads = []
             for item in items:
@@ -455,18 +473,11 @@ class Orchestrator:
                 ev_payloads.append(payload)
                 all_evidence.setdefault((item.entity_type, item.entity_id), payload)
             evidence_by_req[req.id] = ev_payloads
-            grouped = {
-                entity_type: [dict(item) for item in items]
-                for entity_type, items in structured_facts.items()
-            }
-            for payload in ev_payloads:
-                existing_ids = {
-                    item["entity_id"]
-                    for item in grouped.setdefault(payload["entity_type"], [])
-                }
-                if payload["entity_id"] not in existing_ids:
-                    grouped[payload["entity_type"]].append(payload)
-            facts_by_req[req.id] = grouped
+            logger.info(
+                "RetrieveCandidateEvidence req=%s retrieved=%s",
+                req.id,
+                len(items),
+            )
         self._stage(run, "RetrieveCandidateEvidence", "COMPLETED")
 
         # 5. Match requirements (§15-17) ──────────────────────────────────
@@ -489,12 +500,17 @@ class Orchestrator:
                 requirements=req_payloads,
                 evidence=list(all_evidence.values()),
                 evidence_by_requirement=evidence_by_req,
-                structured_facts=facts_by_req,
+                structured_facts=structured_facts,
             )
         except AgentError as exc:
-            self._stage(run, "MatchRequirements", "FAILED", str(exc))
+            message = public_error(
+                exc,
+                fallback="We could not match your profile to this job. Please try again.",
+            )
+            logger.warning("MatchRequirements failed: %s", exc)
+            self._stage(run, "MatchRequirements", "FAILED", message)
             run.status = "FAILED"
-            run.error = f"Matching failed: {exc}"
+            run.error = message
             job.status = "failed"
             self.db.commit()
             return run
@@ -511,10 +527,10 @@ class Orchestrator:
             model_match = returned_matches.get(requirement.id)
             evaluation = evaluate_qualification_paths(
                 requirement.qualification_paths or [],
-                facts_by_req.get(requirement.id, {}),
+                structured_facts,
             )
-            status = evaluation.get(
-                "status",
+            status = resolve_match_status(
+                evaluation,
                 model_match.status if model_match else "UNKNOWN",
             )
             evidence = (
@@ -526,7 +542,7 @@ class Orchestrator:
                 existing_ids = {item["entity_id"] for item in evidence}
                 indexed = {
                     item["entity_id"]: item
-                    for items in facts_by_req.get(requirement.id, {}).values()
+                    for items in structured_facts.values()
                     for item in items
                 }
                 for entity_id in evaluation["evidence_ids"]:
@@ -544,7 +560,7 @@ class Orchestrator:
                 status=status,
                 confidence=(
                     0.95
-                    if evaluation and status != "UNKNOWN"
+                    if evaluation.get("status") == "MATCHED"
                     else model_match.confidence if model_match else 0.0
                 ),
                 explanation=(
@@ -564,6 +580,11 @@ class Orchestrator:
             self.db.add(row)
             match_rows.append(row)
         self.db.flush()
+        logger.info(
+            "MatchRequirements job=%s statuses=%s",
+            job.id,
+            {row.requirement_id: row.status for row in match_rows},
+        )
         self._stage(run, "MatchRequirements", "COMPLETED")
 
         # 6. Calculate score programmatically (§18) ───────────────────────
@@ -571,6 +592,13 @@ class Orchestrator:
         weights = self._scoring_weights()
         threshold = self._threshold()
         computed = compute_score(requirements, match_rows, weights=weights, threshold=threshold)
+        logger.info(
+            "CalculateScore job=%s overall=%.3f coverage=%.3f unknowns=%s",
+            job.id,
+            computed["overall_score"],
+            computed["coverage"],
+            computed["unknown_count"],
+        )
 
         narrative_payload = [
             {
@@ -674,7 +702,8 @@ class Orchestrator:
                 self._stage(run, "GenerateCV", "COMPLETED")
                 self._stage(run, "ValidateCV", "COMPLETED")
             except AgentError as exc:
-                self._stage(run, "GenerateCV", "FAILED", str(exc))
+                message = public_error(exc, fallback="CV generation failed. Please try again.")
+                self._stage(run, "GenerateCV", "FAILED", message)
                 self._stage(run, "ValidateCV", "SKIPPED")
 
         if generate_cover_letter:
@@ -683,7 +712,8 @@ class Orchestrator:
                 docs.generate_cover_letter(application, strategy, template_key=template_key, ctx=ctx)
                 self._stage(run, "GenerateCoverLetter", "COMPLETED")
             except AgentError as exc:
-                self._stage(run, "GenerateCoverLetter", "FAILED", str(exc))
+                message = public_error(exc, fallback="Cover letter generation failed. Please try again.")
+                self._stage(run, "GenerateCoverLetter", "FAILED", message)
 
         if any(s["name"] == "ValidateDocuments" for s in run.stages):
             self._stage(run, "ValidateDocuments", "COMPLETED")

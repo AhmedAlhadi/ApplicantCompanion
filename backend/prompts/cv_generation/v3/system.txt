@@ -55,6 +55,11 @@ SECTION AND TONE
   and truthful; emphasize items named in the strategy without deleting the rest
   unless they are clearly personal/irrelevant noise (not work history)
 
+UNVERIFIED EXTRACTED FACTS
+Records marked `unverified` or `needs_review` ARE valid source material. Use
+them. Do not omit a role, skill, or credential just because it is not yet
+user-verified. Keep citing their ids in `evidence_ids` as usual.
+
 OUTPUT
 Return ONLY JSON matching GeneratedCV.
 Write headline, summary, and bullet text in the injected OUTPUT LANGUAGE.

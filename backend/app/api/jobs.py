@@ -22,8 +22,10 @@ from ..models import (
 )
 from ..schemas.api import AnalyzeRequest, JobCreate, JobUpdate
 from ..security.auth import audit, get_current_user
+from ..scoring.engine import unverified_evidence_summary
 from ..services.deadlines import extract_application_deadline, normalize_application_deadline
 from ..services.serializers import to_dict
+from ..services.user_errors import public_error
 from ..workers.runner import submit
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -60,10 +62,10 @@ def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_res
                 if stage.get("status") == "RUNNING":
                     stage["status"] = "FAILED"
                     stage["ended_at"] = datetime.now(timezone.utc).isoformat()
-                    stage["error"] = str(exc)[:1000]
+                    stage["error"] = public_error(exc)[:1000]
             run.stages = stages
             run.status = "FAILED"
-            run.error = str(exc)[:2000]
+            run.error = public_error(exc)[:2000]
         if job:
             job.status = "failed"
         db.commit()
@@ -267,7 +269,8 @@ def get_score(job_id: str, db: Session = Depends(get_db), user: User = Depends(g
     )
     if score is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No score yet — run analysis first")
-    return to_dict(score)
+    matches = db.query(RequirementMatch).filter(RequirementMatch.job_id == job.id).all()
+    return {**to_dict(score), **unverified_evidence_summary(matches)}
 
 
 @router.get("/{job_id}/research")

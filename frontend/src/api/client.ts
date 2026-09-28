@@ -1,6 +1,8 @@
 // API client — the token lives in localStorage only (never in code) and every
 // request goes to the backend; no API keys exist in the frontend (§42).
 
+import type { CareerDocument, IngestResult } from "./types";
+
 const TOKEN_KEY = "ac_token";
 
 export function getToken(): string | null {
@@ -72,6 +74,35 @@ export const api = {
   upload: <T>(path: string, formData: FormData) => request<T>("POST", path, undefined, formData),
 };
 
+export async function waitForCareerIngest(
+  documentId: string,
+  options?: { intervalMs?: number; timeoutMs?: number }
+): Promise<IngestResult> {
+  const intervalMs = options?.intervalMs ?? 1200;
+  const timeoutMs = options?.timeoutMs ?? 16 * 60 * 1000;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const doc = await api.get<CareerDocument>(`/api/career/documents/${documentId}`);
+    if (doc.ingest_status === "completed") {
+      const result = doc.ingest_result || {};
+      return {
+        document_id: documentId,
+        pending_ingestion_id: result.pending_ingestion_id ?? null,
+        auto_applied: result.auto_applied || {},
+        proposals_count: result.proposals_count || 0,
+        profile: result.profile,
+        created: result.created,
+        note: result.note,
+      };
+    }
+    if (doc.ingest_status === "failed") {
+      throw new ApiError(500, doc.ingest_error || "Ingestion failed");
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new ApiError(504, "Ingestion timed out");
+}
+
 export async function downloadFile(path: string, fallbackName: string) {
   const token = getToken();
   const resp = await fetch(path, {
@@ -92,4 +123,51 @@ export async function downloadFile(path: string, fallbackName: string) {
 
 export function workflowEventsUrl(id: string): string {
   return `/api/workflows/${id}/events`;
+}
+
+/** SSE over fetch so the Bearer token can be sent (native EventSource cannot). */
+export function subscribeWorkflowEvents(
+  id: string,
+  onEvent: (data: unknown) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const token = getToken();
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  return fetch(workflowEventsUrl(id), {
+    method: "GET",
+    headers,
+    cache: "no-store",
+    signal,
+  })
+    .then(async (resp) => {
+      if (!resp.ok || !resp.body) return;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const dataLine = frame
+            .split("\n")
+            .map((line) => line.replace(/\r$/, ""))
+            .find((line) => line.startsWith("data:"));
+          if (!dataLine) continue;
+          const payload = dataLine.startsWith("data: ") ? dataLine.slice(6) : dataLine.slice(5);
+          try {
+            onEvent(JSON.parse(payload));
+          } catch {
+            /* ignore malformed frames */
+          }
+        }
+      }
+    })
+    .catch((err: unknown) => {
+      if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
+    });
 }

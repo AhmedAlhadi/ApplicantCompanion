@@ -4,11 +4,15 @@ Every mutation updates the vector index so semantic retrieval stays fresh.
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..dates import apply_career_dates
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..models import (
     Achievement,
     CareerDocument,
@@ -27,7 +31,7 @@ from ..models import (
     User,
 )
 from ..models import CareerEvidence
-from ..retrieval.pipeline import index_entity, retrieve_evidence
+from ..retrieval.pipeline import index_entity, invalidate_user_index, retrieve_evidence
 from ..schemas.api import (
     AchievementIn,
     CertificationIn,
@@ -47,6 +51,7 @@ from ..schemas.api import (
 from ..security.auth import audit, get_current_user
 from ..security.uploads import validate_upload
 from ..services.ingestion import IngestionService
+from ..workers.runner import submit
 from ..services.knowledge import (
     attach_context,
     knowledge_payload,
@@ -56,6 +61,7 @@ from ..services.knowledge import (
 from ..services.serializers import evidence_for_entity, to_dict
 
 router = APIRouter(prefix="/api/career", tags=["career"])
+logger = logging.getLogger(__name__)
 
 # entity registry: path -> (model, input schema, vector entity type)
 ENTITIES = {
@@ -63,9 +69,9 @@ ENTITIES = {
     "achievements": (Achievement, AchievementIn, "achievement"),
     "projects": (Project, ProjectIn, "project"),
     "skills": (Skill, SkillIn, "skill"),
-    "education": (Education, EducationIn, None),
-    "certifications": (Certification, CertificationIn, None),
-    "languages": (Language, LanguageIn, None),
+    "education": (Education, EducationIn, "education"),
+    "certifications": (Certification, CertificationIn, "certification"),
+    "languages": (Language, LanguageIn, "language"),
     "publications": (Publication, PublicationIn, None),
     "narratives": (CareerNarrative, NarrativeIn, "narrative"),
 }
@@ -170,6 +176,7 @@ def _register_entity_routes():
             _record_provenance(db, user, model, vector_type, obj.id, data)
             if vector_type:
                 index_entity(db, vector_type, obj.id)
+            invalidate_user_index(user.id)
             if model is Experience:
                 _sync_experience_knowledge(db, user, obj)
             audit(db, user, f"career.{path}.create", model.__tablename__, obj.id, request=request)
@@ -189,6 +196,7 @@ def _register_entity_routes():
                 obj.canonical_name = obj.name
             if vector_type:
                 index_entity(db, vector_type, obj.id)
+            invalidate_user_index(user.id)
             if model is Experience:
                 _sync_experience_knowledge(db, user, obj)
             audit(db, user, f"career.{path}.update", model.__tablename__, obj.id, request=request)
@@ -200,6 +208,7 @@ def _register_entity_routes():
             obj.is_deleted = True  # soft delete (§51)
             if vector_type:
                 index_entity(db, vector_type, obj.id)  # removes from index
+            invalidate_user_index(user.id)
             audit(db, user, f"career.{path}.delete", model.__tablename__, obj.id, request=request)
             db.commit()
             return {"deleted": entity_id}
@@ -367,6 +376,7 @@ def verify_knowledge(
         raise HTTPException(422, "Invalid verification status")
     obj = _get_owned(db, ProfessionalKnowledge, entity_id, user)
     obj.verification_status = status_value
+    index_entity(db, "professional_knowledge", obj.id)
     db.commit()
     return knowledge_payload(db, obj)
 
@@ -428,6 +438,10 @@ def verify_entity(path: str, entity_id: str, status_value: str = "verified", db:
     if not hasattr(obj, "verification_status"):
         raise HTTPException(422, "Entity does not support verification")
     obj.verification_status = status_value
+    vector_type = ENTITIES[path][2]
+    if vector_type:
+        index_entity(db, vector_type, obj.id)
+    invalidate_user_index(user.id)
     db.commit()
     return to_dict(obj)
 
@@ -446,6 +460,64 @@ def list_documents(db: Session = Depends(get_db), user: User = Depends(get_curre
     return [to_dict(r, exclude={"extracted_text"}) for r in rows]
 
 
+def _document_payload(document: CareerDocument) -> dict:
+    return to_dict(document, exclude={"extracted_text"})
+
+
+def _ingest_stale(document: CareerDocument) -> bool:
+    if document.ingest_status != "running":
+        return False
+    updated_at = document.updated_at
+    if updated_at is None:
+        return True
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=get_settings().workflow_lease_seconds)
+    return updated_at < cutoff
+
+
+def _run_ingest_background(document_id: str, user_id: str, action: str) -> None:
+    """Background entrypoint with its own session so HTTP can return immediately."""
+    db = SessionLocal()
+    try:
+        document = db.get(CareerDocument, document_id)
+        user = db.get(User, user_id)
+        if not document or not user:
+            raise RuntimeError("ingest entities no longer exist")
+        result = IngestionService(db, user).ingest_document(document)
+        audit(db, user, action, "career_document", document.id, result)
+        db.commit()
+    except Exception as exc:
+        logger.exception("Document ingest failed for %s", document_id)
+        db.rollback()
+        document = db.get(CareerDocument, document_id)
+        if document:
+            document.ingest_status = "failed"
+            document.ingest_error = str(exc)[:2000]
+            document.ingested = False
+            db.commit()
+    finally:
+        db.close()
+
+
+def _enqueue_ingest(db: Session, document: CareerDocument, user: User, action: str) -> dict:
+    if document.ingest_status == "running" and not _ingest_stale(document):
+        return {"status": "accepted", "document_id": document.id, "ingest_status": "running"}
+    document.ingest_status = "running"
+    document.ingest_error = ""
+    document.ingest_result = {}
+    document.ingested = False
+    db.commit()
+    submit(_run_ingest_background, document.id, user.id, action)
+    return {"status": "accepted", "document_id": document.id, "ingest_status": "running"}
+
+
+@router.get("/documents/{document_id}")
+def get_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    document = _get_owned(db, CareerDocument, document_id, user)
+    return _document_payload(document)
+
+
 @router.post("/documents", status_code=201)
 async def upload_document(
     request: Request,
@@ -459,26 +531,26 @@ async def upload_document(
     doc = service.store_document(file.filename or "upload", data, file.content_type or "", doc_type)
     audit(db, user, "career.documents.upload", "career_document", doc.id, {"filename": doc.filename}, request)
     db.commit()
-    return to_dict(doc, exclude={"extracted_text"})
+    return _document_payload(doc)
 
 
-@router.post("/documents/{document_id}/ingest")
+@router.post("/documents/{document_id}/ingest", status_code=202)
 def ingest_document(document_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     document = _get_owned(db, CareerDocument, document_id, user)
-    service = IngestionService(db, user)
-    result = service.ingest_document(document)
-    audit(db, user, "career.documents.ingest", "career_document", document.id, result, request)
-    return result
+    accepted = _enqueue_ingest(db, document, user, "career.documents.ingest")
+    audit(db, user, "career.documents.ingest.start", "career_document", document.id, accepted, request)
+    db.commit()
+    return accepted
 
 
-@router.post("/ingest-text")
+@router.post("/ingest-text", status_code=202)
 def ingest_text(payload: IngestTextRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Paste free-form career text; it is stored then structured by the agent."""
     service = IngestionService(db, user)
     doc = service.store_document(payload.filename, payload.text.encode("utf-8"), "text/plain", payload.doc_type)
-    result = service.ingest_document(doc)
-    audit(db, user, "career.ingest_text", "career_document", doc.id, result, request)
-    return {"document_id": doc.id, **result}
+    audit(db, user, "career.ingest_text.store", "career_document", doc.id, {"filename": doc.filename}, request)
+    accepted = _enqueue_ingest(db, doc, user, "career.ingest_text")
+    return accepted
 
 
 # ── pending ingestion reconciliation (human-in-the-loop) ─────────────────────

@@ -47,7 +47,7 @@ def test_unexpected_background_failure_is_terminal(
     run = db.get(WorkflowRun, response.json()["workflow_run_id"])
     job = db.get(Job, job_id)
     assert run.status == "FAILED"
-    assert "retrieval exploded" in run.error
+    assert "Something went wrong" in run.error
     assert job.status == "failed"
 
 

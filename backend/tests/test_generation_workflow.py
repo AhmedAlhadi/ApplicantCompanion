@@ -96,4 +96,4 @@ def test_strategy_background_failure_is_terminal(client, auth_headers, db, monke
     db.expire_all()
     run = db.get(WorkflowRun, response.json()["workflow_run_id"])
     assert run.status == "FAILED"
-    assert "strategy exploded" in run.error
+    assert "Something went wrong" in run.error
