@@ -154,11 +154,11 @@ Default categories (weights are configurable):
 
 You also get:
 
-- Overall fit percentage and recommendation (Strong Fit vs Moderate/Weak Fit)
+- Overall fit percentage and recommendation (Strong Fit, Fit not established, or Moderate/Weak Fit). The calculation is in [SCORING.md](SCORING.md).
 - Per-category breakdown
 - Strong matches, partial matches, gaps, transferable experience
 - Risks and competitive advantages
-- A configurable threshold (default 80%). Below it, Serah asks before generating documents — it never hard-rejects an application. You always decide.
+- A configurable threshold (default 80%). Serah asks before generating documents unless the demonstrated score clears it — it never hard-rejects an application. You always decide.
 
 ### Application strategy
 

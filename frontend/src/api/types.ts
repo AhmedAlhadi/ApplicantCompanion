@@ -291,7 +291,15 @@ export interface DashboardStats {
   average_fit: number;
   average_ats: number;
   applications_this_month: number;
-  top_opportunities: { job_id: string; organization_name: string; position_title: string; overall_score: number }[];
+  top_opportunities: {
+    job_id: string;
+    organization_name: string;
+    position_title: string;
+    overall_score: number;
+    overall_score_low?: number | null;
+    overall_score_high?: number | null;
+    coverage?: number;
+  }[];
 }
 
 export type AppLanguage = "ar" | "en";

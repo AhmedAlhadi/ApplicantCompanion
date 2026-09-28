@@ -72,7 +72,8 @@ def dashboard_stats(db: Session = Depends(get_db), user: User = Depends(get_curr
         latest_by_job[s.job_id] = s
     latest = list(latest_by_job.values())
 
-    avg_fit = sum(s.overall_score for s in latest) / len(latest) if latest else 0.0
+    scored = [s for s in latest if (s.coverage or 0) > 0]
+    avg_fit = sum(s.overall_score for s in scored) / len(scored) if scored else 0.0
     ats_values = [
         _normalize_unit_interval(a.ats_score_snapshot)
         for a in apps
@@ -85,7 +86,7 @@ def dashboard_stats(db: Session = Depends(get_db), user: User = Depends(get_curr
         1 for a in apps if a.created_at and a.created_at.year == now.year and a.created_at.month == now.month
     )
 
-    top = sorted(latest, key=lambda s: s.overall_score, reverse=True)[:5]
+    top = sorted(scored, key=lambda s: s.overall_score, reverse=True)[:5]
     top_opportunities = []
     for s in top:
         job = db.get(Job, s.job_id)
@@ -95,6 +96,9 @@ def dashboard_stats(db: Session = Depends(get_db), user: User = Depends(get_curr
                 "organization_name": job.organization_name,
                 "position_title": job.position_title,
                 "overall_score": s.overall_score,
+                "overall_score_low": s.overall_score_low,
+                "overall_score_high": s.overall_score_high,
+                "coverage": s.coverage,
             })
 
     return {

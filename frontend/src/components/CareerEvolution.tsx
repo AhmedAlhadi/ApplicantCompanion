@@ -1,6 +1,6 @@
 import type { CareerExperience, CareerNarrative } from "../api/types";
 
-const PHASE_COLORS = ["#3b6fd4", "#2f9e8a", "#7c6af0", "#c9842a", "#4a8fd8", "#43c97e"];
+const PHASE_COLORS = ["var(--chart-1)", "#2f9e8a", "#7c6af0", "#c9842a", "var(--chart-2)", "#43c97e"];
 
 function parseMonth(value?: string | null): number | null {
   if (!value) return null;

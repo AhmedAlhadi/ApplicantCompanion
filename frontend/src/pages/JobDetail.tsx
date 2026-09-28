@@ -16,7 +16,7 @@ import {
 import { api } from "../api/client";
 import type { Application, Job, JobAnalysisResponse, JobScore, ResearchResponse } from "../api/types";
 import { openCoachWidget } from "../components/coach/CoachWidget";
-import { Empty, ErrorBox, Link, ScoreRing, Spinner, UnverifiedEvidenceNote, useApi, useWorkflow } from "../components/ui";
+import { Empty, ErrorBox, Link, ScoreRing, Spinner, UnverifiedEvidenceNote, publishedFit, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { EvidenceGraph } from "../components/EvidenceGraph";
 import { dateLocale, useT } from "../lib/i18n";
@@ -286,8 +286,15 @@ export default function JobDetail() {
             <div className="fact-k">Fit</div>
             <div className="fact-v">
               {s
-                ? (s.coverage != null && s.coverage <= 0 ? t("score.unevaluated") : `${Math.round(s.overall_score * 100)}%`)
+                ? (s.coverage != null && s.coverage <= 0
+                  ? t("score.unevaluated")
+                  : `${Math.round(publishedFit(s.overall_score, s.overall_score_low, s.overall_score_high) * 100)}%`)
                 : "Not scored"}
+              {s && s.coverage != null && s.coverage > 0 && s.overall_score_low != null && s.overall_score_high != null
+                && (Math.round(s.overall_score_low * 100) !== Math.round(publishedFit(s.overall_score, s.overall_score_low, s.overall_score_high) * 100)
+                  || Math.round(s.overall_score_high * 100) !== Math.round(publishedFit(s.overall_score, s.overall_score_low, s.overall_score_high) * 100)) && (
+                <div className="small muted">{Math.round(s.overall_score_low * 100)}–{Math.round(s.overall_score_high * 100)}%</div>
+              )}
             </div>
           </div>
         </div>
@@ -601,7 +608,7 @@ function FitTab({
             <ScoreRing score={s.overall_score} threshold={s.threshold} low={s.overall_score_low} high={s.overall_score_high} coverage={s.coverage} />
             <UnverifiedEvidenceNote count={s.unverified_evidence_count} />
             <div className="mt">
-              {Object.entries(s.category_scores).map(([key, value]) => (
+              {(s.coverage == null || s.coverage > 0) && Object.entries(s.category_scores).map(([key, value]) => (
                 <div className="score-row" key={key}>
                   <span className="name">{t(`category.${key}`)}</span>
                   <div className="score-bar"><div style={{ width: `${Math.round(value * 100)}%` }} /></div>

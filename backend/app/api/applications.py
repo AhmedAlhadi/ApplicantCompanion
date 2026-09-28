@@ -34,6 +34,11 @@ BELOW_THRESHOLD_MESSAGE = (
     "Your estimated fit is below the configured threshold — approve to generate documents, "
     "or cancel the application."
 )
+INCOMPLETE_FIT_MESSAGE = (
+    "Generation is blocked until you approve continuing. "
+    "Some requirements could not be evaluated, so the fit range still crosses your threshold. "
+    "Approve to generate documents, or cancel the application."
+)
 
 
 def _get_owned_app(db: Session, app_id: str, user: User) -> Application:
@@ -194,16 +199,41 @@ def _run_strategy_background(app_id: str, user_id: str, run_id: str) -> None:
         db.close()
 
 
+def _range_crosses_threshold(score: JobScore) -> bool:
+    low = score.overall_score_low
+    high = score.overall_score_high
+    return low is not None and high is not None and low < score.threshold <= high
+
+
+def _fit_needs_decision(score: JobScore) -> bool:
+    """Strong fit is the only result that can proceed without a decision.
+
+    A stored score from the previous method can still say strong_fit while
+    its demonstrated-to-possible range crosses the threshold. That range
+    is what the decision uses.
+    """
+    if (score.coverage or 0) <= 0 or _range_crosses_threshold(score):
+        return True
+    if score.recommendation == "strong_fit":
+        return False
+    if score.recommendation in {"below_threshold", "incomplete"}:
+        return True
+    low = score.overall_score_low if score.overall_score_low is not None else score.overall_score
+    return low < score.threshold
+
+
 def _check_threshold_gate(db: Session, app: Application) -> None:
-    """§20-21: below-threshold scores need an explicit user decision (advisory,
-    never a hard rejection)."""
+    """§20-21: anything short of a demonstrated strong fit needs an explicit
+    user decision (advisory, never a hard rejection)."""
     score = _latest_score(db, app.job_id)
-    if score and score.overall_score < score.threshold and not app.user_approved:
+    if score and _fit_needs_decision(score) and not app.user_approved:
+        crosses = _range_crosses_threshold(score) or (score.coverage or 0) <= 0
+        message = INCOMPLETE_FIT_MESSAGE if score.recommendation == "incomplete" or crosses else BELOW_THRESHOLD_MESSAGE
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={
                 "code": "BELOW_THRESHOLD",
-                "message": BELOW_THRESHOLD_MESSAGE,
+                "message": message,
                 "score": score.overall_score,
                 "threshold": score.threshold,
                 "actions": ["continue", "cancel", "review_gaps"],

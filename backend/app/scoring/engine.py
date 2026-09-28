@@ -1,18 +1,13 @@
 """Job-fit scoring engine (§18-21).
 
-Scores are CALCULATED PROGRAMMATICALLY from structured RequirementMatch data —
-the LLM only supplies the qualitative narrative. Weights are configurable.
+Scores are calculated programmatically from structured RequirementMatch data.
+The LLM only supplies the qualitative narrative. Weights are configurable.
+The equations live in docs/SCORING.md.
 
-Overall Fit = Σ(category_weight × category_score)
-category_score = importance-weighted mean of requirement scores in that category
-requirement score: MATCHED=1.0, TRANSFERABLE=0.5, NOT_MATCHED=0.0,
-PARTIALLY_MATCHED=0.3–0.7 scaled by match confidence (§15).
-
-UNKNOWN requirements (insufficient evidence to evaluate) are excluded from the
-point estimate but are NOT silently dropped: the engine also returns a score
-RANGE — overall_score_low treats every unknown as failed, overall_score_high
-treats every unknown as fully matched — plus an importance-weighted `coverage`
-ratio so the UI can communicate how much of the JD was actually evaluated.
+A requirement that could not be evaluated stays in the weighted sum. It
+contributes 0 to the demonstrated score, 1 to the possible score, and 0.5 to
+the published midpoint. Categories the job description never mentioned are
+the only weights that are dropped and renormalized.
 """
 from __future__ import annotations
 
@@ -127,25 +122,20 @@ def _clamp01(value: float) -> float:
 def _combine(
     buckets: dict[str, list[tuple[float, float]]],
     weights: dict[str, float],
-    *,
-    unknown_weight_by_category: dict[str, float] | None = None,
-    unknown_score: float | None = None,
+    unknown_weight_by_category: dict[str, list[float]],
+    unknown_score: float,
 ) -> tuple[float, dict[str, float]]:
     """Weighted overall score + per-category scores.
 
-    When ``unknown_score`` is given, unknown requirements are included in their
-    category at that score (used for the pessimistic/optimistic bounds);
-    otherwise categories with no evaluated requirements are excluded and the
-    category weights are renormalized over the active categories.
+    Unknown requirements stay in their category at ``unknown_score``.
+    A category with no requirements at all is left out and its weight is
+    renormalized across the categories the job description actually contains.
     """
     category_scores: dict[str, float] = {}
     for category in weights:
         items = list(buckets.get(category, []))
-        if unknown_score is not None and unknown_weight_by_category:
-            items += [(unknown_score, w) for w in unknown_weight_by_category.get(category, [])]
+        items += [(unknown_score, w) for w in unknown_weight_by_category.get(category, [])]
         if not items:
-            # No requirements in this category: neutral — redistribute by
-            # marking as None and renormalizing weights below.
             category_scores[category] = -1.0
             continue
         total_w = sum(w for _, w in items)
@@ -155,6 +145,21 @@ def _combine(
     weight_sum = sum(weights.get(c, 0.0) for c in active) or 1.0
     overall = sum(active[c] * weights.get(c, 0.0) for c in active) / weight_sum
     return _clamp01(overall), {c: round(s, 4) for c, s in category_scores.items() if s >= 0}
+
+
+def _recommendation(low: float, high: float, coverage: float, threshold: float) -> str:
+    """Strong fit only when the demonstrated score clears the bar.
+
+    Below threshold only when even the optimistic reading misses it.
+    Otherwise the range still crosses the threshold and the fit is incomplete.
+    """
+    if coverage <= 0:
+        return "incomplete"
+    if low >= threshold:
+        return "strong_fit"
+    if high < threshold:
+        return "below_threshold"
+    return "incomplete"
 
 
 def compute_score(
@@ -205,32 +210,28 @@ def compute_score(
         ):
             gaps.append(req.text)
 
-    # Point estimate: unknowns excluded (renormalized); bounds: unknowns
-    # counted as fully failed / fully matched.
-    overall, category_scores = _combine(buckets, weights)
-    overall_low, _ = _combine(
-        buckets, weights,
-        unknown_weight_by_category=unknown_weight_by_category, unknown_score=0.0,
-    )
-    overall_high, _ = _combine(
-        buckets, weights,
-        unknown_weight_by_category=unknown_weight_by_category, unknown_score=1.0,
-    )
+    # Unknowns stay in every pass: 0 demonstrated, 0.5 published, 1 possible.
+    overall_low, _ = _combine(buckets, weights, unknown_weight_by_category, 0.0)
+    overall, category_scores = _combine(buckets, weights, unknown_weight_by_category, 0.5)
+    overall_high, _ = _combine(buckets, weights, unknown_weight_by_category, 1.0)
     coverage = (
         evaluated_importance_weight / total_importance_weight
         if total_importance_weight > 0
         else 0.0
     )
+    low = round(min(overall_low, overall), 4)
+    high = round(max(overall_high, overall), 4)
+    published = round(overall, 4)
 
     return {
-        "overall_score": round(overall, 4),
-        "overall_score_low": round(min(overall_low, overall), 4),
-        "overall_score_high": round(max(overall_high, overall), 4),
+        "overall_score": published,
+        "overall_score_low": low,
+        "overall_score_high": high,
         "coverage": round(coverage, 4),
         "category_scores": category_scores,
         "weights": weights,
         "threshold": threshold,
-        "recommendation": "strong_fit" if overall >= threshold else "below_threshold",
+        "recommendation": _recommendation(low, high, coverage, threshold),
         "unknown_count": unknown_count,
         "strong_matches": strong,
         "partial_matches": partial,

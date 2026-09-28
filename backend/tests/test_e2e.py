@@ -69,7 +69,7 @@ def test_full_acceptance_pipeline(client, auth_headers, career_kb):
     assert 0.0 <= score["overall_score"] <= 1.0
     assert score["overall_score"] >= score["threshold"] - 0.35  # strong candidate fixture
     assert score["category_scores"]
-    assert score["recommendation"] in ("strong_fit", "below_threshold")
+    assert score["recommendation"] in ("strong_fit", "below_threshold", "incomplete")
     assert score["explanation"]
 
     # Research gracefully unavailable offline (§54)
@@ -85,7 +85,7 @@ def test_full_acceptance_pipeline(client, auth_headers, career_kb):
     # Below-threshold gate: user decision required before generation (§20-21)
     score_now = client.get(f"/api/jobs/{job_id}/score", headers=auth_headers).json()
     gen = client.post(f"/api/applications/{app_id}/generate-all", headers=auth_headers, json={})
-    if score_now["overall_score"] < score_now["threshold"]:
+    if score_now["recommendation"] != "strong_fit":
         assert gen.status_code == 409
         detail = gen.json()["detail"]
         assert detail["code"] == "BELOW_THRESHOLD"

@@ -6,6 +6,9 @@ and configurability of weights (§18).
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+from app.api.applications import _fit_needs_decision
 from app.models import JobRequirement, RequirementMatch
 from app.scoring.engine import DEFAULT_WEIGHTS, compute_score
 
@@ -83,13 +86,14 @@ def test_candidate_no_evidence_is_unknown_not_failed():
     reqs = [_req("Kubernetes administration", "technical_skill")]
     matches = [_match(reqs[0], "UNKNOWN", confidence=0.0)]
     result = compute_score(reqs, matches)
-    # UNKNOWN is excluded from the denominator, not treated as failure (§15)
+    # UNKNOWN stays in the sum at the 0.5 prior. It is not a confirmed miss.
     assert result["unknown_count"] == 1
-    assert result["category_scores"] == {}
-    # ...but the uncertainty is fully visible in the range and coverage
+    assert result["overall_score"] == 0.5
+    assert result["category_scores"]["technical_skills"] == 0.5
     assert result["overall_score_low"] == 0.0
     assert result["overall_score_high"] == 1.0
     assert result["coverage"] == 0.0
+    assert result["recommendation"] == "incomplete"
     assert result["unverified_evidence_count"] == 0
 
 
@@ -108,20 +112,65 @@ def test_unverified_evidence_is_counted_not_excluded():
     assert result["unverified_match_count"] == 1
 
 
-def test_unknowns_produce_score_range():
+def test_unknowns_stay_in_the_published_score():
     reqs = [
         _req("5 years of Python experience", "technical_skill", importance="HIGH"),
         _req("Kubernetes administration", "technical_skill", importance="HIGH"),
     ]
     matches = [_match(reqs[0], "MATCHED"), _match(reqs[1], "UNKNOWN", confidence=0.0)]
     result = compute_score(reqs, matches)
-    # Point estimate only reflects the evaluated requirement
-    assert result["overall_score"] == 1.0
-    # Bounds show the best/worst case once the unknown is resolved
+    # Equal importance: demonstrated 0.5, published midpoint 0.75, possible 1.0.
+    # The matched requirement must not rescale to 100%.
+    assert result["overall_score"] == 0.75
+    assert result["category_scores"]["technical_skills"] == 0.75
     assert result["overall_score_low"] == 0.5
     assert result["overall_score_high"] == 1.0
     assert result["coverage"] == 0.5
     assert result["unknown_count"] == 1
+    assert result["recommendation"] == "incomplete"
+
+
+def test_unknown_in_another_category_cannot_inflate_the_score():
+    reqs = [
+        _req("English fluency", "language", importance="LOW"),
+        _req("Master's degree in Computer Science", "functional", importance="CRITICAL"),
+    ]
+    matches = [_match(reqs[0], "MATCHED"), _match(reqs[1], "UNKNOWN", confidence=0.0)]
+    result = compute_score(reqs, matches)
+    # Language weight 0.05 fully matched; mandatory weight 0.25 unknown.
+    # (0.05 * 1 + 0.25 * 0.5) / 0.30 = 0.5833, not 1.0.
+    assert result["overall_score"] == 0.5833
+    assert result["overall_score_low"] == 0.1667
+    assert result["overall_score_high"] == 1.0
+    assert result["coverage"] == 0.2
+    assert result["recommendation"] == "incomplete"
+
+
+def test_strong_fit_requires_the_demonstrated_score():
+    reqs = [
+        _req("Python", "technical_skill", importance="CRITICAL"),
+        _req("Kubernetes", "technical_skill", importance="LOW"),
+    ]
+    matches = [_match(reqs[0], "MATCHED"), _match(reqs[1], "UNKNOWN", confidence=0.0)]
+    result = compute_score(reqs, matches)
+    # Demonstrated 4/5 = 0.8 clears the default threshold even if the unknown fails.
+    assert result["overall_score_low"] == 0.8
+    assert result["overall_score"] == 0.9
+    assert result["overall_score_high"] == 1.0
+    assert result["recommendation"] == "strong_fit"
+
+
+def test_below_threshold_when_the_best_case_still_misses():
+    reqs = [
+        _req("Master's degree", "functional", importance="CRITICAL"),
+        _req("French", "functional", importance="LOW"),
+    ]
+    matches = [_match(reqs[0], "NOT_MATCHED"), _match(reqs[1], "UNKNOWN", confidence=0.0)]
+    result = compute_score(reqs, matches)
+    assert result["overall_score_low"] == 0.0
+    assert result["overall_score"] == 0.1
+    assert result["overall_score_high"] == 0.2
+    assert result["recommendation"] == "below_threshold"
 
 
 def test_bounds_collapse_when_everything_evaluated():
@@ -195,8 +244,41 @@ def test_failed_qualification_evaluation_does_not_wipe_matched_status():
     assert result["strong_matches"] == ["Digital transformation experience"]
 
 
+def _stored_score(**kwargs):
+    base = dict(
+        recommendation="strong_fit",
+        coverage=1.0,
+        overall_score=1.0,
+        overall_score_low=1.0,
+        overall_score_high=1.0,
+        threshold=0.8,
+    )
+    base.update(kwargs)
+    return SimpleNamespace(**base)
+
+
+def test_generation_gate_follows_the_score_range():
+    assert _fit_needs_decision(_stored_score()) is False
+    assert _fit_needs_decision(_stored_score(
+        recommendation="below_threshold",
+        overall_score=0.4,
+        overall_score_low=0.4,
+        overall_score_high=0.4,
+    )) is True
+    # A previous analysis can still be labeled strong_fit while the stored
+    # range crosses the threshold. The range is what blocks generation.
+    assert _fit_needs_decision(_stored_score(
+        coverage=0.5,
+        overall_score=1.0,
+        overall_score_low=0.5,
+        overall_score_high=1.0,
+    )) is True
+    assert _fit_needs_decision(_stored_score(coverage=0.0, overall_score=0.5, overall_score_low=0.0, overall_score_high=1.0)) is True
+
+
 def test_empty_requirements_have_zero_coverage():
     result = compute_score([], [])
     assert result["coverage"] == 0.0
     assert result["overall_score"] == 0.0
+    assert result["recommendation"] == "incomplete"
 

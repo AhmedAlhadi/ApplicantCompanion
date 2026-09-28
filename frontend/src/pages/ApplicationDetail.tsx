@@ -65,11 +65,16 @@ export default function ApplicationDetail() {
     },
   );
 
-  const belowThreshold =
-    !!score.data &&
-    score.data.overall_score < score.data.threshold &&
-    !!a &&
-    !a.user_approved;
+  const belowThreshold = (() => {
+    if (!score.data || !a || a.user_approved) return false;
+    const low = score.data.overall_score_low;
+    const high = score.data.overall_score_high;
+    const crosses = low != null && high != null && low < score.data.threshold && high >= score.data.threshold;
+    if ((score.data.coverage ?? 1) <= 0 || crosses) return true;
+    if (score.data.recommendation === "strong_fit") return false;
+    if (score.data.recommendation === "below_threshold" || score.data.recommendation === "incomplete") return true;
+    return (low ?? score.data.overall_score) < score.data.threshold;
+  })();
 
   const activeGate: ThresholdGate | null =
     gate ??
@@ -78,7 +83,14 @@ export default function ApplicationDetail() {
           code: "BELOW_THRESHOLD",
           score: score.data!.overall_score,
           threshold: score.data!.threshold,
-          message: t("application.gateMessage"),
+          message: score.data!.recommendation === "incomplete"
+            || (score.data!.overall_score_low != null
+              && score.data!.overall_score_high != null
+              && score.data!.overall_score_low < score.data!.threshold
+              && score.data!.overall_score_high >= score.data!.threshold)
+            || (score.data!.coverage ?? 1) <= 0
+            ? t("application.gateIncomplete")
+            : t("application.gateMessage"),
           gaps: score.data!.gaps ?? [],
         }
       : null);

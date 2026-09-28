@@ -376,12 +376,25 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
   );
 }
 
+type CareerMode = "choice" | "upload" | "describe";
+
+const MIN_BACKGROUND_CHARS = 80;
+
 function CareerStep({ onDone, hasExistingCareer }: { onDone: () => Promise<void>; hasExistingCareer: boolean }) {
   const { t } = useT();
+  const [mode, setMode] = useState<CareerMode>("choice");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const background = text.trim();
+  const backgroundReady = background.length >= MIN_BACKGROUND_CHARS;
+
+  const choose = (next: CareerMode) => {
+    if (busy) return;
+    setError(null);
+    setMode(next);
+  };
 
   const finishIngest = async (result: IngestResult) => {
     if (result.pending_ingestion_id) {
@@ -396,11 +409,15 @@ function CareerStep({ onDone, hasExistingCareer }: { onDone: () => Promise<void>
   };
 
   const ingestText = async () => {
-    if (!text.trim()) return;
+    if (!backgroundReady) return;
     setBusy(true);
     setError(null);
     try {
-      const accepted = await api.post<{ document_id: string }>("/api/career/ingest-text", { text, doc_type: "cv" });
+      const accepted = await api.post<{ document_id: string }>("/api/career/ingest-text", {
+        text: background,
+        doc_type: "notes",
+        filename: "background.txt",
+      });
       const result = await waitForCareerIngest(accepted.document_id);
       await finishIngest(result);
     } catch (err) {
@@ -434,30 +451,73 @@ function CareerStep({ onDone, hasExistingCareer }: { onDone: () => Promise<void>
     <div className="panel">
       <h1 className="page-title"><Upload className="page-title-icon" aria-hidden /> {t("onboarding.careerTitle")}</h1>
       <p className="page-sub">{t("onboarding.careerSub")}</p>
-      <label>{t("onboarding.uploadCv")}</label>
-      <input type="file" accept=".pdf,.docx,.txt,.md" onChange={upload} disabled={busy} />
-      <label>{t("onboarding.orPaste")}</label>
-      <textarea
-        rows={10}
-        placeholder={t("onboarding.pastePlaceholder")}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        disabled={busy}
-      />
+
+      {mode === "choice" && (
+        <>
+          <div className="onboard-choices">
+            <button type="button" className="onboard-choice" onClick={() => choose("upload")}>
+              <Upload aria-hidden />
+              <span className="onboard-choice-title">{t("onboarding.choiceUpload")}</span>
+              <span className="onboard-choice-desc">{t("onboarding.choiceUploadDesc")}</span>
+            </button>
+            <button type="button" className="onboard-choice" onClick={() => choose("describe")}>
+              <FileText aria-hidden />
+              <span className="onboard-choice-title">{t("onboarding.choiceDescribe")}</span>
+              <span className="onboard-choice-desc">{t("onboarding.choiceDescribeDesc")}</span>
+            </button>
+          </div>
+          {hasExistingCareer && (
+            <button className="mt" onClick={() => void onDone()}>
+              {t("onboarding.continueExisting")}
+            </button>
+          )}
+        </>
+      )}
+
+      {mode !== "choice" && (
+        <button type="button" className="ghost" onClick={() => choose("choice")} disabled={busy}>
+          {t("onboarding.changeMethod")}
+        </button>
+      )}
+
+      {mode === "upload" && (
+        <div className="mt">
+          <label>{t("onboarding.uploadCv")}</label>
+          <input type="file" accept=".pdf,.docx,.txt,.md" onChange={upload} disabled={busy} />
+          {busy && <ThinkingProgress phrases={THINKING_PHRASES.cvIngest} icon={FileSearch} />}
+        </div>
+      )}
+
+      {mode === "describe" && (
+        <div className="mt">
+          <ul className="onboard-prompts">
+            <li>{t("onboarding.describePromptRole")}</li>
+            <li>{t("onboarding.describePromptWork")}</li>
+            <li>{t("onboarding.describePromptSkills")}</li>
+          </ul>
+          <textarea
+            rows={8}
+            placeholder={t("onboarding.describePlaceholder")}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={busy}
+          />
+          <p className="small muted">{t("onboarding.describeHint")}</p>
+          {background.length > 0 && !backgroundReady && (
+            <p className="small muted">{t("onboarding.describeTooShort")}</p>
+          )}
+          {busy ? (
+            <ThinkingProgress phrases={THINKING_PHRASES.cvIngest} icon={FileSearch} />
+          ) : (
+            <button className="primary mt" onClick={ingestText} disabled={!backgroundReady}>
+              <Sparkles aria-hidden /> {t("onboarding.buildProfile")}
+            </button>
+          )}
+        </div>
+      )}
+
       <ErrorBox error={error} />
       {note && <div className="alert ok">{note}</div>}
-      {busy ? (
-        <ThinkingProgress phrases={THINKING_PHRASES.cvIngest} icon={FileSearch} />
-      ) : (
-        <button className="primary mt" onClick={ingestText} disabled={!text.trim()}>
-          <Sparkles aria-hidden /> {t("onboarding.extractPasted")}
-        </button>
-      )}
-      {hasExistingCareer && !busy && (
-        <button className="mt" onClick={() => void onDone()}>
-          {t("onboarding.continueExisting")}
-        </button>
-      )}
     </div>
   );
 }
@@ -726,8 +786,16 @@ function DoneStep({
 }) {
   const { t } = useT();
   const score = summary?.score;
-  const below = !!score && (score.coverage ?? 1) > 0 && score.overall_score < score.threshold;
   const unevaluated = !!score && (score.coverage ?? 1) <= 0;
+  const crosses = !!score
+    && score.overall_score_low != null
+    && score.overall_score_high != null
+    && score.overall_score_low < score.threshold
+    && score.overall_score_high >= score.threshold;
+  const incomplete = !!score && !unevaluated && (score.recommendation === "incomplete" || crosses);
+  const below = !!score && !unevaluated && !incomplete && (
+    score.recommendation === "below_threshold" || score.overall_score < score.threshold
+  );
   return (
     <div className="panel">
       <h1 className="page-title"><PartyPopper className="page-title-icon" aria-hidden /> {t("onboarding.doneTitle")}</h1>
@@ -745,6 +813,11 @@ function DoneStep({
       {unevaluated && (
         <div className="alert warn">
           {t("onboarding.unevaluated")}
+        </div>
+      )}
+      {incomplete && (
+        <div className="alert warn">
+          {t("onboarding.incomplete")}
         </div>
       )}
       {below && (

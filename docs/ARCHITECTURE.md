@@ -100,10 +100,11 @@ keyword re-rank → dedup → top-N evidence`.
 
 ## Scoring (§18-21)
 
-`scoring/engine.py` computes the score programmatically:
-`requirement status → {MATCHED 1.0, PARTIALLY_MATCHED 0.6, TRANSFERABLE 0.5,
-NOT_MATCHED 0.0, UNKNOWN excluded}` → importance-weighted per category →
-weighted sum with configurable category weights (defaults from the spec).
+`scoring/engine.py` computes the score programmatically. Unchecked
+requirements stay in the weighted sum (demonstrated 0, published midpoint
+0.5, possible 1). Categories the job description never mentioned are the
+weights that get renormalized. Equations and the strong-fit rule are in
+[SCORING.md](SCORING.md).
 The `technical_skills` key is labeled “Skills & tools” in the product and
 accepts the alias `skills_and_tools`. It covers clinical techniques, trade
 methods, teaching methods, and software skills — not only ICT.

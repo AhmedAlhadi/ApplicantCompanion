@@ -1,7 +1,7 @@
 import { Briefcase, CalendarDays, FileStack, Gauge, ShieldCheck } from "lucide-react";
 import { api } from "../api/client";
 import type { Application, DashboardStats, UserSettings } from "../api/types";
-import { Empty, Link, useApi } from "../components/ui";
+import { Empty, Link, publishedFit, useApi } from "../components/ui";
 import { showAts } from "../lib/ats";
 import { useT } from "../lib/i18n";
 
@@ -87,15 +87,28 @@ export default function Dashboard() {
           {s?.top_opportunities?.length ? (
             <table>
               <tbody>
-                {s.top_opportunities.map((o) => (
-                  <tr key={o.job_id}>
-                    <td>
-                      <Link to={`/jobs/${o.job_id}`}>{o.position_title || t("common.untitledRole")}</Link>
-                      <div className="small muted">{o.organization_name}</div>
-                    </td>
-                    <td style={{ textAlign: "end", fontWeight: 700 }}>{Math.round(o.overall_score * 100)}%</td>
-                  </tr>
-                ))}
+                {s.top_opportunities.map((o) => {
+                  const fit = publishedFit(o.overall_score, o.overall_score_low, o.overall_score_high);
+                  const pct = Math.round(fit * 100);
+                  const showRange = o.overall_score_low != null && o.overall_score_high != null
+                    && (Math.round(o.overall_score_low * 100) !== pct || Math.round(o.overall_score_high * 100) !== pct);
+                  return (
+                    <tr key={o.job_id}>
+                      <td>
+                        <Link to={`/jobs/${o.job_id}`}>{o.position_title || t("common.untitledRole")}</Link>
+                        <div className="small muted">{o.organization_name}</div>
+                      </td>
+                      <td style={{ textAlign: "end", fontWeight: 700 }}>
+                        {pct}%
+                        {showRange && (
+                          <div className="small muted" style={{ fontWeight: 500 }}>
+                            {Math.round(o.overall_score_low! * 100)}–{Math.round(o.overall_score_high! * 100)}%
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (

@@ -55,8 +55,8 @@ type CareerBundle = {
 };
 
 const TYPE_COLOR: Record<NodeType, string> = {
-  profile: "#7ea6ff",
-  experience: "#5b8cff",
+  profile: "var(--chart-1)",
+  experience: "var(--chart-1)",
   projects: "#37c2a0",
   skills: "#a78bfa",
   technology: "#f0a04b",
@@ -576,7 +576,7 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
                 return (
                   <g
                     key={n.id}
-                    className="ck-node"
+                    className={`ck-node${n.type === "profile" ? " profile" : ""}`}
                     transform={`translate(${n.x} ${n.y})`}
                     opacity={dimmed ? 0.28 : 1}
                     onPointerDown={(e) => {
@@ -596,8 +596,8 @@ export function CareerOverview({ onOpenTab }: { onOpenTab: (tab: CareerTabKey) =
                       width={n.w}
                       height={n.h}
                       rx={n.type === "profile" ? 12 : 10}
-                      fill={n.type === "profile" ? "#1a2748" : `${color}22`}
-                      stroke={hovered ? "#e8ecf6" : color}
+                      fill={n.type === "profile" ? "var(--chart-profile-fill)" : `color-mix(in srgb, ${color} 13%, transparent)`}
+                      stroke={hovered ? "var(--chart-hover-stroke)" : color}
                       strokeWidth={hovered ? 2 : 1.4}
                     />
                     <text className="ck-node-label" y={n.sub ? -4 : 4} textAnchor="middle">

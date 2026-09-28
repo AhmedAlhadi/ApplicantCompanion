@@ -226,6 +226,12 @@ export function Layout({ user }: { user: User }) {
   );
 }
 
+/** Midpoint of the demonstrated/possible range. Falls back to the stored score. */
+export function publishedFit(score: number, low?: number | null, high?: number | null): number {
+  if (low != null && high != null) return (low + high) / 2;
+  return score;
+}
+
 export function ScoreRing({
   score,
   threshold,
@@ -241,24 +247,36 @@ export function ScoreRing({
 }) {
   const { t } = useT();
   const unevaluated = coverage != null && coverage <= 0;
-  const pct = Math.round(score * 100);
-  const strong = !unevaluated && (threshold === undefined ? pct >= 80 : score >= threshold);
+  const pct = Math.round(publishedFit(score, low, high) * 100);
+  const bar = threshold ?? 0.8;
+  const hasBounds = low != null && high != null;
+  const strong = !unevaluated && (hasBounds ? low >= bar : score >= bar);
+  const incomplete = !unevaluated && hasBounds && low < bar && high >= bar;
   const hasRange =
     !unevaluated &&
-    low != null &&
-    high != null &&
+    hasBounds &&
     (Math.round(low * 100) !== pct || Math.round(high * 100) !== pct);
+  const badge = unevaluated ? "UNKNOWN" : strong ? "strong" : incomplete ? "incomplete" : "moderate";
   return (
     <div className="score-ring">
       <div className="score-big" style={{ color: unevaluated ? "var(--muted)" : strong ? "var(--ok)" : "var(--warn)" }}>
         {unevaluated ? t("score.unevaluated") : `${pct}%`}
       </div>
       <div>
-        <span className={`badge ${unevaluated ? "UNKNOWN" : strong ? "strong" : "moderate"}`}>
-          {unevaluated ? t("score.unevaluatedBadge") : strong ? t("score.strong") : t("score.moderate")}
+        <span className={`badge ${badge}`}>
+          {unevaluated
+            ? t("score.unevaluatedBadge")
+            : strong
+              ? t("score.strong")
+              : incomplete
+                ? t("score.incomplete")
+                : t("score.moderate")}
         </span>
         {unevaluated && (
           <div className="small muted mt">{t("score.unevaluatedHint")}</div>
+        )}
+        {incomplete && (
+          <div className="small muted mt">{t("score.incompleteHint")}</div>
         )}
         {hasRange && (
           <div className="small muted mt">

@@ -38,7 +38,7 @@ const COL_X: Record<Column, number> = {
 
 const COL_COLOR: Record<Column, string> = {
   requirement: "#a78bfa",
-  competency: "#5b8cff",
+  competency: "var(--chart-1)",
   evidence: "#37c2a0",
   technology: "#7dd3fc",
 };
@@ -301,8 +301,8 @@ export function EvidenceGraph({ analysis }: { analysis: JobAnalysisResponse }) {
                   width={n.w}
                   height={n.h}
                   rx={10}
-                  fill={`${color}22`}
-                  stroke={hovered ? "#e8ecf6" : color}
+                  fill={`color-mix(in srgb, ${color} 13%, transparent)`}
+                  stroke={hovered ? "var(--chart-hover-stroke)" : color}
                   strokeWidth={hovered ? 2 : 1.4}
                 />
                 <text className="ck-node-label" y={n.pct != null || n.sub ? -5 : 4} textAnchor="middle">

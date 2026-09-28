@@ -132,8 +132,8 @@ class JobScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "job_scores"
 
     job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), index=True)
-    overall_score: Mapped[float] = mapped_column(Float, default=0.0)  # 0..1
-    # Uncertainty range: unknowns counted as failed (low) / matched (high).
+    overall_score: Mapped[float] = mapped_column(Float, default=0.0)  # midpoint, 0..1
+    # Demonstrated fit (unknowns earn 0) and possible fit (unknowns earn 1).
     overall_score_low: Mapped[float | None] = mapped_column(Float, nullable=True)
     overall_score_high: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Importance-weighted share of requirements that could be evaluated (0..1).
@@ -141,7 +141,7 @@ class JobScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     category_scores: Mapped[dict] = mapped_column(JSON, default=dict)
     weights: Mapped[dict] = mapped_column(JSON, default=dict)
     threshold: Mapped[float] = mapped_column(Float, default=0.8)
-    recommendation: Mapped[str] = mapped_column(String(32), default="")  # strong_fit|below_threshold
+    recommendation: Mapped[str] = mapped_column(String(32), default="")  # strong_fit|incomplete|below_threshold
     unknown_count: Mapped[int] = mapped_column(default=0)
     strong_matches: Mapped[list] = mapped_column(JSON, default=list)
     partial_matches: Mapped[list] = mapped_column(JSON, default=list)
