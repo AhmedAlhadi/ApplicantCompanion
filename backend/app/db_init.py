@@ -105,6 +105,17 @@ def _ensure_additive_columns() -> None:
                 f"JSON NOT NULL DEFAULT {_json_default('{}')}"
             )
 
+    execution_cols = _table_columns(insp, "agent_executions")
+    if execution_cols:
+        if "user_id" not in execution_cols:
+            statements.append("ALTER TABLE agent_executions ADD COLUMN user_id VARCHAR(36)")
+        if "usage_reservation_id" not in execution_cols:
+            statements.append("ALTER TABLE agent_executions ADD COLUMN usage_reservation_id VARCHAR(36)")
+
+    workflow_cols = _table_columns(insp, "workflow_runs")
+    if workflow_cols and "usage_reservation_id" not in workflow_cols:
+        statements.append("ALTER TABLE workflow_runs ADD COLUMN usage_reservation_id VARCHAR(36)")
+
     user_cols = _table_columns(insp, "users")
     if user_cols:
         if "google_sub" not in user_cols:
@@ -127,9 +138,17 @@ def _ensure_additive_columns() -> None:
 
 def main() -> None:
     create_schema()
+    from .database import SessionLocal
     from .seed import seed_if_empty
+    from .services.entitlements import EntitlementsService
 
     seed_if_empty()
+    db = SessionLocal()
+    try:
+        EntitlementsService(db).backfill_subscriptions()
+        db.commit()
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

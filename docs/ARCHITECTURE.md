@@ -20,7 +20,13 @@
  PostgreSQL              AI Agent Layer         Templates/Renderer
  Qdrant (vectors)        Research Engine        PDF / DOCX export
  MinIO (objects)         Scoring Engine
+                         Entitlements & Usage
 ```
+
+Entitlements resolve the assigned plan version, feature flags, and temporary
+overrides. Usage reservations are recorded before costly workflows and settled
+when the workflow succeeds or fails, so concurrent requests cannot overspend
+an allowance.
 
 The repository is a monorepo:
 

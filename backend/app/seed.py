@@ -123,7 +123,13 @@ DEMO_LANGUAGES = [
 def seed_if_empty() -> None:
     db = SessionLocal()
     try:
+        from .services.entitlements import EntitlementsService
+
+        entitlements = EntitlementsService(db)
+        entitlements.ensure_catalog()
         if db.query(User).count() > 0:
+            entitlements.backfill_subscriptions()
+            db.commit()
             return
         email, password = _seed_credentials()
         logger.info("Seeding initial data…")
@@ -204,6 +210,10 @@ def seed_if_empty() -> None:
             index_all_for_user(db, user.id)
             set_user_setting(db, user.id, "onboarding_status", "completed")
 
+        from .config import get_settings
+
+        plan_code = "power" if get_settings().app_env == "test" else "explorer"
+        EntitlementsService(db).assign(user.id, plan_code=plan_code, notes="Initial plan")
         db.commit()
         logger.info("Seed complete. Login: %s", email)
     finally:

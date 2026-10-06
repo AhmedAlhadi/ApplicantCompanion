@@ -39,11 +39,11 @@ def test_alembic_upgrade_clean_sqlite(tmp_path):
     url = _sqlite_url(tmp_path / "clean.db")
     _alembic(url, "upgrade", "head")
     heads = _alembic(url, "current")
-    assert "00010_document_ingest_status" in heads or "0010_document_ingest_status" in heads
+    assert "0011_entitlements_usage" in heads
     engine = create_engine(url)
     with engine.connect() as conn:
         tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
-    assert {"professional_knowledge", "knowledge_contexts", "coach_conversations", "coach_messages"} <= tables
+    assert {"professional_knowledge", "knowledge_contexts", "coach_conversations", "coach_messages", "plans", "usage_reservations"} <= tables
 
 
 def test_alembic_upgrade_existing_sqlite_backfills_domains(tmp_path):
@@ -79,7 +79,7 @@ def test_alembic_upgrade_existing_sqlite_backfills_domains(tmp_path):
         ]
         contexts = conn.execute(text("SELECT COUNT(*) FROM knowledge_contexts WHERE is_deleted = 0")).scalar()
         coach_count = conn.execute(text("SELECT COUNT(*) FROM coach_conversations")).scalar()
-    assert version == "0010_document_ingest_status"
+    assert version == "0011_entitlements_usage"
     assert "logistics" in names
     assert "freight booking" in names
     assert contexts >= 2

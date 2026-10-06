@@ -6,6 +6,8 @@ import type { AppDocument, Application, JobScore, Strategy, Template, UserSettin
 import { openCoachWidget } from "../components/coach/CoachWidget";
 import { Empty, ErrorBox, ScoreRing, Spinner, UnverifiedEvidenceNote, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
+import { UsageLimitPanel } from "../components/Usage";
+import { asUsageLimit } from "../lib/usageErrors";
 import { showAts } from "../lib/ats";
 import { useT } from "../lib/i18n";
 
@@ -41,6 +43,7 @@ export default function ApplicationDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
   const [gate, setGate] = useState<ThresholdGate | null>(null);
+  const [usageGate, setUsageGate] = useState<ReturnType<typeof asUsageLimit>>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,6 +130,9 @@ export default function ApplicationDetail() {
           gaps: Array.isArray(err.detail.gaps) ? err.detail.gaps : [],
         });
         setError(null);
+      } else if (err instanceof ApiError && asUsageLimit(err.detail)) {
+        setUsageGate(asUsageLimit(err.detail));
+        setError(null);
       } else {
         setError(err instanceof Error ? err.message : t("application.generateFailed"));
       }
@@ -141,7 +147,12 @@ export default function ApplicationDetail() {
       setWorkflowRunId(accepted.workflow_run_id);
     } catch (err) {
       setBusy(null);
-      setError(err instanceof Error ? err.message : t("application.strategyFailed"));
+      if (err instanceof ApiError && asUsageLimit(err.detail)) {
+        setUsageGate(asUsageLimit(err.detail));
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : t("application.strategyFailed"));
+      }
     }
   };
 
@@ -199,6 +210,7 @@ export default function ApplicationDetail() {
         </div>
       )}
       <ErrorBox error={error} />
+      {usageGate && <UsageLimitPanel detail={usageGate} />}
 
       <div className="panel">
         <h3>{t("application.strategy")}</h3>

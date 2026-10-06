@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import admin, applications, auth, career, coach, documents, jobs, misc, onboarding
+from .api import admin, admin_entitlements, applications, auth, career, coach, documents, entitlements, jobs, misc, onboarding
 from .config import get_settings
 from .observability import ObservabilityMiddleware, configure_logging
 from .security.rate_limit import RateLimitMiddleware
@@ -21,6 +21,15 @@ settings = get_settings()
 async def lifespan(_: FastAPI):
     bind_loop(asyncio.get_running_loop())
     jobs.reconcile_stale_analysis_runs()
+    from .database import SessionLocal
+    from .services.usage import UsageService
+
+    db = SessionLocal()
+    try:
+        UsageService(db).release_stale()
+        db.commit()
+    finally:
+        db.close()
     yield
 
 
@@ -53,6 +62,8 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(admin_entitlements.router)
+app.include_router(entitlements.router)
 app.include_router(career.router)
 app.include_router(coach.router)
 app.include_router(jobs.router)

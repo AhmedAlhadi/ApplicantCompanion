@@ -48,7 +48,14 @@ def list_templates(document_type: str | None = None, db: Session = Depends(get_d
     query = db.query(Template)
     if document_type:
         query = query.filter(Template.document_type == document_type)
-    return [to_dict(t) for t in query.order_by(Template.key).all()]
+    rows = [to_dict(t) for t in query.order_by(Template.key).all()]
+    from ..services.entitlements import EntitlementsService
+
+    effective = EntitlementsService(db).resolve(user.id)
+    if not effective.usable:
+        return []
+    allowed = set(effective.template_keys)
+    return [row for row in rows if row.get("key") in allowed]
 
 
 # ── dashboard (§33) ──────────────────────────────────────────────────────────
@@ -140,6 +147,14 @@ def update_settings(payload: SettingsUpdate, request: Request, db: Session = Dep
         set_user_setting(db, user.id, "score_threshold", payload.score_threshold)
     if payload.scoring_weights is not None:
         from ..scoring.engine import normalize_weights
+        from ..entitlements.constants import FEATURE_CUSTOM_SCORING
+        from ..services.entitlements import EntitlementsService
+        from ..services.usage_errors import EntitlementError
+
+        try:
+            EntitlementsService(db).require_feature(user.id, FEATURE_CUSTOM_SCORING)
+        except EntitlementError as exc:
+            raise exc.as_http() from exc
 
         weights = normalize_weights(payload.scoring_weights)
         total = sum(weights.values())
@@ -156,6 +171,18 @@ def update_settings(payload: SettingsUpdate, request: Request, db: Session = Dep
         set_user_setting(db, user.id, "ui_language", payload.ui_language)
     if payload.content_language is not None:
         set_user_setting(db, user.id, "content_language", payload.content_language)
+    if payload.default_cv_template is not None or payload.default_cover_letter_template is not None:
+        from ..services.entitlements import EntitlementsService
+        from ..services.usage_errors import EntitlementError
+
+        try:
+            entitlements = EntitlementsService(db)
+            if payload.default_cv_template is not None:
+                entitlements.require_template(user.id, payload.default_cv_template)
+            if payload.default_cover_letter_template is not None:
+                entitlements.require_template(user.id, payload.default_cover_letter_template)
+        except EntitlementError as exc:
+            raise exc.as_http() from exc
     if payload.default_cv_template is not None:
         set_user_setting(db, user.id, "default_cv_template", payload.default_cv_template)
     if payload.default_cover_letter_template is not None:

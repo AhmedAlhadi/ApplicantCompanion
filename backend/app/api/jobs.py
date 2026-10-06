@@ -39,7 +39,7 @@ def _get_owned_job(db: Session, job_id: str, user: User) -> Job:
     return job
 
 
-def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_research: bool) -> None:
+def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_research: bool, include_hiring: bool = True) -> None:
     """Background entrypoint with its own session (§53)."""
     db = SessionLocal()
     try:
@@ -50,7 +50,14 @@ def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_res
             raise RuntimeError("analysis entities no longer exist")
         run.status = "RUNNING"
         db.flush()
-        Orchestrator(db, user).run_job_analysis(job, include_research=include_research, run=run)
+        Orchestrator(db, user).run_job_analysis(
+            job, include_research=include_research, include_hiring=include_hiring, run=run
+        )
+        run = db.get(WorkflowRun, run_id)
+        from ..services.usage import UsageService
+
+        UsageService(db).settle(run)
+        db.commit()
     except Exception as exc:
         logger.exception("Job analysis failed unexpectedly for run %s", run_id)
         db.rollback()
@@ -68,6 +75,10 @@ def _run_analysis_background(job_id: str, user_id: str, run_id: str, include_res
             run.error = public_error(exc)[:2000]
         if job:
             job.status = "failed"
+        from ..services.usage import UsageService
+
+        run = db.get(WorkflowRun, run_id)
+        UsageService(db).settle(run)
         db.commit()
     finally:
         db.close()
@@ -110,6 +121,9 @@ def reconcile_stale_analysis_runs() -> int:
                 job = db.get(Job, run.job_id)
                 if job and job.status == "analyzing":
                     job.status = "failed"
+            from ..services.usage import UsageService
+
+            UsageService(db).settle(run)
         db.commit()
         return len(stale)
     finally:
@@ -226,17 +240,51 @@ def analyze_job(job_id: str, payload: AnalyzeRequest | None = None, db: Session 
                     if stage["status"] == "FAILED":
                         stage["error"] = run.error
             run.stages = stages
+            from ..services.usage import UsageService
+
+            UsageService(db).settle(run)
             db.commit()
             run = None
     if run is None:
-        # Create the run row synchronously so clients get its id immediately,
-        # then execute in the background (§53).
         from ..agents.orchestrator import ANALYSIS_STAGES
+        from ..entitlements.constants import FEATURE_HIRING_CONTEXT, FEATURE_ORGANIZATION_RESEARCH
+        from ..services.usage import UsageService
+        from ..services.usage_errors import EntitlementError
 
-        run = Orchestrator(db, user).create_run("job_analysis", ANALYSIS_STAGES, job_id=job.id)
+        usage = UsageService(db)
+        include_hiring = False
+        try:
+            usage.assert_concurrency(user.id)
+            if include_research:
+                effective = usage.entitlements.require_feature(user.id, FEATURE_ORGANIZATION_RESEARCH)
+                include_hiring = bool(effective.features.get(FEATURE_HIRING_CONTEXT))
+                _unlock, reservation, owned = usage.open_application_pack(user.id, job)
+            else:
+                usage.entitlements.require_usable(user.id)
+                reservation, owned = usage.open_fit_check(user.id, job)
+        except EntitlementError as exc:
+            raise exc.as_http() from exc
+        reservation_id = reservation.id if reservation is not None and owned and reservation.state == "reserved" else None
+        if reservation is not None and reservation.state == "reserved" and not owned:
+            active = (
+                db.query(WorkflowRun)
+                .filter(
+                    WorkflowRun.usage_reservation_id == reservation.id,
+                    WorkflowRun.status.in_(("PENDING", "RUNNING")),
+                )
+                .first()
+            )
+            if active is not None:
+                return {"status": "accepted", "workflow_run_id": active.id}
+        run = Orchestrator(db, user).create_run(
+            "job_analysis",
+            ANALYSIS_STAGES,
+            job_id=job.id,
+            usage_reservation_id=reservation_id,
+        )
         job.status = "analyzing"
         db.commit()
-        submit(_run_analysis_background, job.id, user.id, run.id, include_research)
+        submit(_run_analysis_background, job.id, user.id, run.id, include_research, include_hiring)
     return {"status": "accepted", "workflow_run_id": run.id}
 
 

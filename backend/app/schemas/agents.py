@@ -282,7 +282,12 @@ class CareerExtractionResult(BaseModel):
 
 
 class ReconciliationProposal(BaseModel):
-    """One suggested action for an extracted career entity vs existing KB."""
+    """Merge-or-create decision for one extracted career entity.
+
+    The extracted record itself is not part of this schema. Strict structured
+    output cannot carry a free-form object, so ingestion attaches the original
+    payload after the model chooses merge vs create.
+    """
 
     proposal_id: str = ""
     entity_type: Literal["experience", "project", "achievement"] = "experience"
@@ -291,7 +296,6 @@ class ReconciliationProposal(BaseModel):
     target_label: str = ""
     confidence: float = 0.5
     reasoning: str = ""
-    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class CareerReconciliationResult(BaseModel):

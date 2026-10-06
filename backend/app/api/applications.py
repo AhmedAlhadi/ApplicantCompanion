@@ -87,6 +87,13 @@ def create_application(payload: ApplicationCreate, request: Request, db: Session
     if existing:
         return _app_payload(db, existing)
     app = Application(user_id=user.id, job_id=job.id, status="draft")
+    from ..services.usage import UsageService
+    from ..services.usage_errors import EntitlementError
+
+    try:
+        UsageService(db).assert_active_application(user.id)
+    except EntitlementError as exc:
+        raise exc.as_http() from exc
     score = _latest_score(db, job.id)
     if score:
         app.fit_score_snapshot = score.overall_score
@@ -149,14 +156,36 @@ def get_strategy(app_id: str, db: Session = Depends(get_db), user: User = Depend
     return to_dict(strategy)
 
 
+def _owned_pack_reservation(db: Session, user: User, app: Application, template_key: str | None) -> str | None:
+    from ..models import Job
+    from ..services.usage import UsageService
+    from ..services.usage_errors import EntitlementError
+
+    usage = UsageService(db)
+    try:
+        usage.assert_concurrency(user.id)
+        usage.entitlements.require_template(user.id, template_key)
+        job = db.get(Job, app.job_id)
+        if job is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+        _unlock, reservation, owned = usage.open_application_pack(user.id, job)
+    except EntitlementError as exc:
+        raise exc.as_http() from exc
+    if reservation is not None and owned and reservation.state == "reserved":
+        return reservation.id
+    return None
+
+
 @router.post("/{app_id}/strategy", status_code=202)
 def generate_strategy(app_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     app = _get_owned_app(db, app_id, user)
+    reservation_id = _owned_pack_reservation(db, user, app, None)
     run = Orchestrator(db, user).create_run(
         "document_generation",
         generation_stages(strategy_only=True),
         job_id=app.job_id,
         application_id=app.id,
+        usage_reservation_id=reservation_id,
     )
     db.commit()
     submit(_run_strategy_background, app.id, user.id, run.id)
@@ -190,10 +219,18 @@ def _run_strategy_background(app_id: str, user_id: str, run_id: str) -> None:
         run.status = "RUNNING"
         db.flush()
         Orchestrator(db, user).run_strategy(app, run=run)
+        run = db.get(WorkflowRun, run_id)
+        from ..services.usage import UsageService
+
+        UsageService(db).settle(run)
+        db.commit()
     except Exception as exc:
         logger.exception("Strategy generation failed unexpectedly for run %s", run_id)
         db.rollback()
         _fail_run(db, run_id, exc)
+        from ..services.usage import UsageService
+
+        UsageService(db).settle(db.get(WorkflowRun, run_id))
         db.commit()
     finally:
         db.close()
@@ -280,21 +317,31 @@ def _run_generation_background(
             template_key=template_key,
             run=run,
         )
+        run = db.get(WorkflowRun, run_id)
+        from ..services.usage import UsageService
+
+        UsageService(db).settle(run)
+        db.commit()
     except Exception as exc:
         logger.exception("Document generation failed unexpectedly for run %s", run_id)
         db.rollback()
         _fail_run(db, run_id, exc)
+        from ..services.usage import UsageService
+
+        UsageService(db).settle(db.get(WorkflowRun, run_id))
         db.commit()
     finally:
         db.close()
 
 
 def _accept_generation(db: Session, app: Application, user: User, gen_cv: bool, gen_cl: bool, template_key: str | None) -> dict:
+    reservation_id = _owned_pack_reservation(db, user, app, template_key)
     run = Orchestrator(db, user).create_run(
         "document_generation",
         generation_stages(generate_cv=gen_cv, generate_cover_letter=gen_cl),
         job_id=app.job_id,
         application_id=app.id,
+        usage_reservation_id=reservation_id,
     )
     db.commit()
     submit(_run_generation_background, app.id, user.id, run.id, gen_cv, gen_cl, template_key)

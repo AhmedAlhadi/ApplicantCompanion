@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download, History, Pencil } from "lucide-react";
-import { api, downloadFile } from "../api/client";
+import { api, ApiError, downloadFile } from "../api/client";
 import type { AppDocument, CVContent, CoverLetterContent, JobScore, Template, UserSettings } from "../api/types";
 import { Empty, ErrorBox, Link, Spinner, UnverifiedEvidenceNote, useApi } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
+import { UsageLimitPanel } from "../components/Usage";
+import { asUsageLimit } from "../lib/usageErrors";
 import { showAts } from "../lib/ats";
 import { mergeEvidenceIds, stripInlineEvidence } from "../lib/evidenceText";
 import { useT } from "../lib/i18n";
@@ -56,6 +58,7 @@ export default function DocumentEditor() {
   const [draft, setDraft] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [usageGate, setUsageGate] = useState<ReturnType<typeof asUsageLimit>>(null);
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const [sortByDate, setSortByDate] = useState(true);
 
@@ -125,12 +128,14 @@ export default function DocumentEditor() {
 
   const regenerateSection = async (section: string) => {
     setBusy(section);
+    setUsageGate(null);
     try {
       await api.post(`/api/documents/${d.id}/regenerate-section`, { section });
       if (section === "experience") setSortByDate(true);
       doc.reload();
-    } catch (err: any) {
-      setError(typeof err.detail === "string" ? err.detail : t("editor.regenFailed"));
+    } catch (err) {
+      if (err instanceof ApiError && asUsageLimit(err.detail)) setUsageGate(asUsageLimit(err.detail));
+      else setError(err instanceof Error ? err.message : t("editor.regenFailed"));
     } finally {
       setBusy(null);
     }
@@ -175,6 +180,7 @@ export default function DocumentEditor() {
       </div>
 
       <ErrorBox error={error} />
+      {usageGate && <UsageLimitPanel detail={usageGate} />}
       <UnverifiedEvidenceNote count={score.data?.unverified_evidence_count} />
 
       <div className="grid cols-3" style={{ gridTemplateColumns: "2fr 1fr" }}>

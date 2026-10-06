@@ -105,7 +105,14 @@ class Orchestrator:
 
     # ── workflow plumbing ────────────────────────────────────────────────
 
-    def _new_run(self, workflow_type: str, stages: list[str], job_id=None, application_id=None) -> WorkflowRun:
+    def _new_run(
+        self,
+        workflow_type: str,
+        stages: list[str],
+        job_id=None,
+        application_id=None,
+        usage_reservation_id=None,
+    ) -> WorkflowRun:
         run = WorkflowRun(
             user_id=self.user.id,
             job_id=job_id,
@@ -113,6 +120,7 @@ class Orchestrator:
             workflow_type=workflow_type,
             status="RUNNING",
             stages=[{"name": s, "status": "PENDING"} for s in stages],
+            usage_reservation_id=usage_reservation_id,
         )
         self.db.add(run)
         self.db.flush()
@@ -155,16 +163,37 @@ class Orchestrator:
             job_id=job_id,
             application_id=application_id,
             workflow_run_id=run.id,
+            usage_reservation_id=run.usage_reservation_id,
         )
 
-    def create_run(self, workflow_type: str, stages: list[str], job_id=None, application_id=None) -> WorkflowRun:
+    def create_run(
+        self,
+        workflow_type: str,
+        stages: list[str],
+        job_id=None,
+        application_id=None,
+        usage_reservation_id=None,
+    ) -> WorkflowRun:
         """Create the run row synchronously so the API can return its id
         before background execution starts."""
-        return self._new_run(workflow_type, stages, job_id=job_id, application_id=application_id)
+        return self._new_run(
+            workflow_type,
+            stages,
+            job_id=job_id,
+            application_id=application_id,
+            usage_reservation_id=usage_reservation_id,
+        )
 
     # ── workflow 1: job analysis (§9) ─────────────────────────────────────
 
-    def run_job_analysis(self, job: Job, *, include_research: bool = True, run: WorkflowRun | None = None) -> WorkflowRun:
+    def run_job_analysis(
+        self,
+        job: Job,
+        *,
+        include_research: bool = True,
+        include_hiring: bool = True,
+        run: WorkflowRun | None = None,
+    ) -> WorkflowRun:
         self._analysis_deadline = (
             time.monotonic() + get_settings().analysis_timeout_seconds
         )
@@ -298,7 +327,7 @@ class Orchestrator:
         hiring_result = HiringContextResult(
             identified=False, note="Hiring manager not identified with sufficient confidence."
         )
-        if include_research and job.organization_name:
+        if include_research and include_hiring and job.organization_name:
             try:
                 snippets = gather_snippets(
                     self.db,

@@ -29,6 +29,7 @@ class AgentContext:
     job_id: str | None = None
     application_id: str | None = None
     workflow_run_id: str | None = None
+    usage_reservation_id: str | None = None
 
 
 class AgentError(Exception):
@@ -69,9 +70,11 @@ class BaseAgent:
     def run(self, ctx: AgentContext, **kwargs) -> Any:
         started = time.monotonic()
         execution = AgentExecution(
+            user_id=ctx.user_id,
             job_id=ctx.job_id,
             application_id=ctx.application_id,
             workflow_run_id=ctx.workflow_run_id,
+            usage_reservation_id=ctx.usage_reservation_id,
             agent_name=self.name,
             prompt_name=self.prompt.name if self.prompt else "",
             prompt_version=self.prompt.version if self.prompt else "",
@@ -80,6 +83,9 @@ class BaseAgent:
         ctx.db.add(execution)
         ctx.db.flush()
         self.last_execution = execution
+        prompt_tokens = 0
+        completion_tokens = 0
+        validation_errors: list[str] = []
 
         try:
             routed = route_task(self.task)
@@ -89,9 +95,6 @@ class BaseAgent:
                 self.output_model.model_json_schema() if self.output_model else None
             )
             response = None
-            validation_errors: list[str] = []
-            prompt_tokens = 0
-            completion_tokens = 0
             result = None
             lang = self.resolve_output_language(ctx, **kwargs)
             system = self.prompt.system if self.prompt else ""
@@ -139,10 +142,6 @@ class BaseAgent:
                 result.model_dump() if isinstance(result, BaseModel) else {"value": str(result)}
             )
             execution.output_summary = json.dumps(execution.output)[:500]
-            execution.token_usage = {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-            }
             execution.validation_result = {
                 "schema_valid": True,
                 "attempts": len(validation_errors) + 1,
@@ -169,6 +168,12 @@ class BaseAgent:
         finally:
             execution.ended_at = datetime.now(timezone.utc)
             execution.duration_ms = (time.monotonic() - started) * 1000
+            if prompt_tokens or completion_tokens:
+                execution.token_usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "attempts": len(validation_errors) + (1 if execution.status == "COMPLETED" else 0),
+                }
             ctx.db.flush()
 
     def _parse(self, payload: dict | None) -> Any:

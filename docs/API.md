@@ -112,6 +112,31 @@ retrieved set only. Message bodies are not written to the ordinary audit log.
 | GET | `/api/workflows/{id}/events` | SSE live progress stream (§53) |
 | GET | `/api/health` | Liveness |
 
+## Entitlements and usage
+
+Plans are versioned and assigned by an administrator. Periodic meters
+(`fit_check`, `application_pack`, `section_regeneration`) are reserved before
+work and committed only when the workflow produces a usable result. Storage,
+document count, active applications, and concurrent workflows are current-state
+limits. Published plan versions are immutable.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/account/usage` | Current plan, meters, credits, features, and active pack unlocks |
+| GET | `/api/admin/plans` | Plan catalog and versions |
+| POST | `/api/admin/plans` | Create a draft plan |
+| POST | `/api/admin/plans/{id}/versions` | Create an unpublished version |
+| POST | `/api/admin/plans/{id}/versions/{version_id}/publish` | Publish a version |
+| POST | `/api/admin/users/{id}/subscription` | Assign a plan |
+| POST | `/api/admin/users/{id}/credits` | Grant PAYG or promotional credits |
+| POST | `/api/admin/users/{id}/overrides` | Temporary feature or limit override |
+| GET | `/api/admin/usage/stats` | Fleet usage, near-limit users, reservations, token totals |
+
+Commercial denials use **403** or **409** with `detail.code` of
+`FEATURE_NOT_AVAILABLE`, `SUBSCRIPTION_INACTIVE`, `USAGE_LIMIT_REACHED`,
+`CONCURRENT_WORKFLOW_LIMIT`, or `STORAGE_LIMIT_REACHED`, plus used, reserved,
+limit, remaining, and period end when applicable.
+
 ## Error model
 
 Errors return `{"detail": ...}`. The below-threshold gate returns **409** with

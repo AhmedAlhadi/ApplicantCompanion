@@ -527,6 +527,13 @@ async def upload_document(
     user: User = Depends(get_current_user),
 ):
     data = await validate_upload(file)
+    from ..services.usage import UsageService
+    from ..services.usage_errors import EntitlementError
+
+    try:
+        UsageService(db).assert_storage(user.id, len(data))
+    except EntitlementError as exc:
+        raise exc.as_http() from exc
     service = IngestionService(db, user)
     doc = service.store_document(file.filename or "upload", data, file.content_type or "", doc_type)
     audit(db, user, "career.documents.upload", "career_document", doc.id, {"filename": doc.filename}, request)
@@ -547,7 +554,15 @@ def ingest_document(document_id: str, request: Request, db: Session = Depends(ge
 def ingest_text(payload: IngestTextRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Paste free-form career text; it is stored then structured by the agent."""
     service = IngestionService(db, user)
-    doc = service.store_document(payload.filename, payload.text.encode("utf-8"), "text/plain", payload.doc_type)
+    encoded = payload.text.encode("utf-8")
+    from ..services.usage import UsageService
+    from ..services.usage_errors import EntitlementError
+
+    try:
+        UsageService(db).assert_storage(user.id, len(encoded))
+    except EntitlementError as exc:
+        raise exc.as_http() from exc
+    doc = service.store_document(payload.filename, encoded, "text/plain", payload.doc_type)
     audit(db, user, "career.ingest_text.store", "career_document", doc.id, {"filename": doc.filename}, request)
     accepted = _enqueue_ingest(db, doc, user, "career.ingest_text")
     return accepted

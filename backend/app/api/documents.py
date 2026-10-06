@@ -69,6 +69,14 @@ def get_document(document_id: str, db: Session = Depends(get_db), user: User = D
 def update_document(document_id: str, payload: DocumentUpdateRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     svc = _service(db, user)
     _, doc_type, doc, _ = _resolve(db, user, document_id)
+    if payload.template_key:
+        from ..services.entitlements import EntitlementsService
+        from ..services.usage_errors import EntitlementError
+
+        try:
+            EntitlementsService(db).require_template(user.id, payload.template_key)
+        except EntitlementError as exc:
+            raise exc.as_http() from exc
     version = svc.save_user_edit(doc_type, doc.id, payload.content, payload.template_key)
     audit(db, user, "documents.edit", doc_type, doc.id, {"version": version.version_number}, request)
     db.commit()
@@ -78,9 +86,32 @@ def update_document(document_id: str, payload: DocumentUpdateRequest, request: R
 @router.post("/{document_id}/regenerate-section")
 def regenerate_section(document_id: str, payload: RegenerateSectionRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     svc = _service(db, user)
-    _, doc_type, doc, _ = _resolve(db, user, document_id)
-    ctx = AgentContext(db=db, user_id=user.id, application_id=doc.application_id)
-    version = svc.regenerate_section(doc_type, doc.id, payload.section, db.get(Application, doc.application_id), ctx)
+    _, doc_type, doc, current = _resolve(db, user, document_id)
+    from ..services.usage import UsageService
+    from ..services.usage_errors import EntitlementError
+
+    version_number = current.version_number if current else 0
+    usage = UsageService(db)
+    try:
+        reservation, owned = usage.open_section_regeneration(user.id, doc.id, payload.section, version_number)
+    except EntitlementError as exc:
+        raise exc.as_http() from exc
+    ctx = AgentContext(
+        db=db,
+        user_id=user.id,
+        application_id=doc.application_id,
+        usage_reservation_id=reservation.id if owned else None,
+    )
+    try:
+        version = svc.regenerate_section(doc_type, doc.id, payload.section, db.get(Application, doc.application_id), ctx)
+        if owned:
+            usage.commit(reservation.id)
+    except Exception:
+        db.rollback()
+        if owned:
+            UsageService(db).release(reservation.id, "section regeneration failed")
+            db.commit()
+        raise
     audit(db, user, "documents.regenerate_section", doc_type, doc.id, {"section": payload.section}, request)
     db.commit()
     return to_dict(version)
@@ -134,6 +165,15 @@ def export(
     _, doc_type, doc, current = _resolve(db, user, document_id)
     if current is None:
         raise HTTPException(404, "No version generated yet")
+    if fmt == "docx":
+        from ..entitlements.constants import FEATURE_DOCX_EXPORT
+        from ..services.entitlements import EntitlementsService
+        from ..services.usage_errors import EntitlementError
+
+        try:
+            EntitlementsService(db).require_feature(user.id, FEATURE_DOCX_EXPORT)
+        except EntitlementError as exc:
+            raise exc.as_http() from exc
     profile = db.query(CareerProfile).filter(CareerProfile.user_id == user.id).first()
     template = db.query(Template).filter(
         Template.key == doc.template_key, Template.document_type == doc_type

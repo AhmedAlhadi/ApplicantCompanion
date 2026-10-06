@@ -4,22 +4,22 @@ overview: Implement a provider-free, admin-managed entitlement system with immut
 todos:
   - id: domain-ledger
     content: Add versioned plan, subscription, credit, override, usage ledger/reservation, and pack-unlock models plus migration/backfill
-    status: pending
+    status: completed
   - id: services
     content: Implement entitlement resolution and atomic usage reservation/commit/release services
-    status: pending
+    status: completed
   - id: enforcement
     content: Enforce plans across analysis, research, generation, regeneration, storage, templates, and concurrency
-    status: pending
+    status: completed
   - id: admin-api
     content: Add user usage and audited admin plan/subscription/credit/monitoring APIs
-    status: pending
+    status: completed
   - id: frontend
     content: Build bilingual admin plan/usage management and end-user usage/guardrail interfaces
-    status: pending
+    status: completed
   - id: verification
     content: Add SQLite service/API tests, PostgreSQL race tests, migration validation, and end-to-end quota verification
-    status: pending
+    status: completed
 isProject: false
 ---
 

@@ -1,8 +1,10 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Briefcase, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { Job } from "../api/types";
+import { UsageLimitPanel } from "../components/Usage";
+import { asUsageLimit } from "../lib/usageErrors";
 import { Empty, ErrorBox, Link, useApi } from "../components/ui";
 import { useT } from "../lib/i18n";
 
@@ -62,11 +64,17 @@ export default function Jobs() {
   const { t } = useT();
   const { data, loading, reload } = useApi<Job[]>(() => api.get("/api/jobs"));
   const [showForm, setShowForm] = useState(false);
+  const [usageGate, setUsageGate] = useState<ReturnType<typeof asUsageLimit>>(null);
   const navigate = useNavigate();
 
   const onCreated = async (id: string) => {
-    await api.post(`/api/jobs/${id}/analyze`, { include_research: true });
-    navigate(`/jobs/${id}`);
+    setUsageGate(null);
+    try {
+      await api.post(`/api/jobs/${id}/analyze`, { include_research: true });
+      navigate(`/jobs/${id}`);
+    } catch (err) {
+      if (err instanceof ApiError) setUsageGate(asUsageLimit(err.detail));
+    }
   };
 
   return (
@@ -81,6 +89,7 @@ export default function Jobs() {
         </button>
       </div>
       {showForm && <NewJobForm onCreated={onCreated} />}
+      {usageGate && <UsageLimitPanel detail={usageGate} />}
       {loading && <p className="muted">{t("common.loading")}</p>}
       {!loading && !data?.length && !showForm && <Empty icon={Briefcase}>{t("jobs.empty")}</Empty>}
       {data?.map((job) => (

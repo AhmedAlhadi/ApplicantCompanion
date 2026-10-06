@@ -53,6 +53,9 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     )
     db.add(user)
     db.flush()
+    from ..services.entitlements import EntitlementsService
+
+    EntitlementsService(db).assign(user.id, plan_code="explorer", notes="Registration plan")
     audit(db, user, "auth.register", "user", user.id, request=request)
     db.commit()
     return TokenResponse(access_token=create_access_token(user.id), user=_public_user(user))
@@ -95,6 +98,9 @@ def google_login(payload: GoogleAuthRequest, request: Request, db: Session = Dep
             )
             db.add(user)
             db.flush()
+            from ..services.entitlements import EntitlementsService
+
+            EntitlementsService(db).assign(user.id, plan_code="explorer", notes="Registration plan")
             created = True
         else:
             user.google_sub = sub

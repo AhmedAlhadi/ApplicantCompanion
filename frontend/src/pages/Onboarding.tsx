@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, FileSearch, FileText, PartyPopper, RefreshCw, Sparkles, Upload, User as UserIcon } from "lucide-react";
-import { api, waitForCareerIngest } from "../api/client";
+import { api, ApiError, waitForCareerIngest } from "../api/client";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import type {
   AppDocument,
@@ -15,6 +15,7 @@ import type {
 } from "../api/types";
 import { Brand, ErrorBox, ScoreRing, Spinner, UnverifiedEvidenceNote, useWorkflow } from "../components/ui";
 import { useT } from "../lib/i18n";
+import { usageMessage } from "../lib/usageErrors";
 
 type Step = "welcome" | "career" | "profile" | "job" | "working" | "done";
 
@@ -685,7 +686,8 @@ function JobStep({ onCreated }: { onCreated: (jobId: string, runId: string) => P
       });
       await onCreated(job.id, accepted.workflow_run_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("onboarding.analyzeFailed"));
+      const limited = err instanceof ApiError ? usageMessage(err.detail, t) : null;
+      setError(limited || (err instanceof Error ? err.message : t("onboarding.analyzeFailed")));
       setBusy(false);
     }
   };

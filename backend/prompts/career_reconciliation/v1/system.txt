@@ -33,12 +33,16 @@ OUTPUT RULES
 - action must be "merge" or "create".
 - For "merge", target_id MUST be an id from the existing list; set target_label
   to that entity's label. For "create", target_id is null and target_label "".
-- Copy the extracted payload into "payload" unchanged (do not invent fields).
+- Do not return the extracted record. The system keeps the original payload and
+  attaches it to your decision. Returning a payload drops the resume content.
 - Include brief reasoning and a confidence score (0..1).
 - proposal_id may be empty; the system will assign ids.
+- When you cannot decide an item, still return a proposal for it with action
+  "create". One proposal per extracted item, in the same order, is required so
+  later roles, projects, and achievements are not dropped.
 
 OUTPUT
 Return ONLY JSON matching CareerReconciliationResult:
 {"proposals": [{"proposal_id": "", "entity_type": "experience|project|achievement",
  "action": "create|merge", "target_id": null|string, "target_label": string,
- "confidence": float, "reasoning": string, "payload": object}]}
+ "confidence": float, "reasoning": string}]}

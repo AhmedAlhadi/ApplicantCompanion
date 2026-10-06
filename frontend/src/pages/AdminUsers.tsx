@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Link } from "react-router-dom";
 import { RefreshCw, UserPlus, Users } from "lucide-react";
 import { api } from "../api/client";
 import type { AdminUser, User } from "../api/types";
@@ -130,6 +131,7 @@ export default function AdminUsers({ currentUser }: { currentUser: User }) {
                   <th>{t("admin.signedInWith")}</th>
                   <th>{t("admin.jobs")}</th>
                   <th>{t("admin.applications")}</th>
+                  <th>{t("usage.plan")}</th>
                   <th>{t("admin.actions")}</th>
                 </tr>
               </thead>
@@ -163,6 +165,10 @@ export default function AdminUsers({ currentUser }: { currentUser: User }) {
                       <td className="small">{authLabel(u, t)}</td>
                       <td>{u.job_count}</td>
                       <td>{u.application_count}</td>
+                      <td>
+                        <Link to={`/admin/users/${u.id}/entitlements`}>{u.plan_name || u.plan_code || t("usage.noPlan")}</Link>
+                        {u.subscription_status ? <div className="small muted">{u.subscription_status}</div> : null}
+                      </td>
                       <td>
                         {!self && (
                           <div className="row" style={{ gap: 6 }}>

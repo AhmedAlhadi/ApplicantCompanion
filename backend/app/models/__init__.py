@@ -1,4 +1,15 @@
 from .agent import AgentExecution, WorkflowRun
+from .entitlements import (
+    ApplicationPackUnlock,
+    CreditGrant,
+    EntitlementOverride,
+    Plan,
+    PlanVersion,
+    Subscription,
+    UsageBucket,
+    UsageEvent,
+    UsageReservation,
+)
 from .application import (
     Application,
     ApplicationStrategy,
@@ -39,7 +50,9 @@ from .job import (
 from .user import AuditLog, User, UserSetting
 
 __all__ = [
-    "Achievement", "AgentExecution", "Application", "ApplicationStrategy",
+    "Achievement", "AgentExecution", "Application", "ApplicationPackUnlock", "ApplicationStrategy",
+    "CreditGrant", "EntitlementOverride", "Plan", "PlanVersion", "Subscription",
+    "UsageBucket", "UsageEvent", "UsageReservation",
     "AuditLog", "CareerDocument", "CareerEvidence", "CareerNarrative",
     "CareerProfile", "Certification", "CoachConversation", "CoachMessage", "CoverLetter", "CV", "DocumentVersion",
     "Education", "Experience", "HiringContext", "Job", "JobRequirement",

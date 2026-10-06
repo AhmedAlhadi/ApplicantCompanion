@@ -53,6 +53,8 @@ export default function AdminDashboard({ currentUser }: { currentUser: User }) {
         <Link to="/admin/users" className="btn primary">
           <Users aria-hidden /> {t("admin.manageUsers")}
         </Link>
+        <Link to="/admin/plans" className="btn">{t("nav.plans")}</Link>
+        <Link to="/admin/usage" className="btn">{t("nav.usageDashboard")}</Link>
       </div>
 
       <div className="grid cols-4">

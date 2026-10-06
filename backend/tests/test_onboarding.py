@@ -16,6 +16,9 @@ def _headers_for(db, *, email: str, full_name: str = "", with_experience: bool =
     )
     db.add(user)
     db.flush()
+    from app.services.entitlements import EntitlementsService
+
+    EntitlementsService(db).assign(user.id, plan_code="explorer", notes="Test account")
     if with_experience:
         db.add(
             Experience(

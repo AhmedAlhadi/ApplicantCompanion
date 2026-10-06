@@ -34,6 +34,10 @@ export interface AdminUser {
   job_count: number;
   application_count: number;
   onboarding_status: "in_progress" | "completed" | "skipped" | "reset" | null;
+  plan_code?: string;
+  plan_name?: string;
+  subscription_status?: string | null;
+  plan_usable?: boolean;
 }
 
 export interface Job {
@@ -573,4 +577,78 @@ export interface CoachConversation {
   created_at: string | null;
   updated_at: string | null;
   messages?: CoachMessage[];
+}
+
+export interface MeterUsage {
+  meter: string;
+  included: number | null;
+  rollover: number;
+  credits: number;
+  used: number;
+  reserved: number;
+  remaining: number | null;
+  period_end: string | null;
+  warning_level: "none" | "70" | "90" | "100";
+}
+
+export interface UsageSummary {
+  subscription: {
+    status: string;
+    plan_code: string;
+    plan_name: string;
+    usable: boolean;
+    current_period_end: string | null;
+  } | null;
+  period_end: string | null;
+  features: Record<string, boolean>;
+  template_keys: string[];
+  meters: MeterUsage[];
+  credits: { id: string; meter: string; original: number; remaining: number; source: string; expires_at: string | null }[];
+  overrides?: { id: string; feature_key: string | null; meter: string | null; enabled: boolean | null; limit_value: number | null; reason: string; expires_at: string | null }[];
+}
+
+export interface PlanVersionRecord {
+  id: string;
+  version_number: number;
+  limits: Record<string, number>;
+  rollover_caps: Record<string, number>;
+  features: Record<string, boolean>;
+  template_keys: string[];
+  priority: number;
+  published_at: string | null;
+  notes: string;
+}
+
+export interface PlanRecord {
+  id: string;
+  code: string;
+  display_name: string;
+  status: string;
+  current_version_id: string | null;
+  subscriber_count: number;
+  versions: PlanVersionRecord[];
+}
+
+export interface UsageLimitDetail {
+  code: string;
+  message?: string;
+  meter?: string;
+  used?: number;
+  reserved?: number;
+  limit?: number;
+  remaining?: number;
+  period_end?: string;
+  feature?: string;
+  actions?: string[];
+}
+
+export interface AdminUsageStats {
+  period_key: string;
+  users_by_plan: Record<string, number>;
+  usage_by_meter: Record<string, { consumed: number; reserved: number }>;
+  users_near_limit: { user_id: string; email: string; meter: string; pct: number }[];
+  stale_reservations: number;
+  active_reservations: number;
+  tokens_by_model: Record<string, number>;
+  top_consumers: { user_id: string; email: string; consumed: number }[];
 }

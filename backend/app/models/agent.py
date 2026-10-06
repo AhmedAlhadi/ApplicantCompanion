@@ -17,7 +17,9 @@ class AgentExecution(UUIDPrimaryKeyMixin, Base):
 
     job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=True, index=True)
     application_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("applications.id"), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workflow_run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("workflow_runs.id"), nullable=True, index=True)
+    usage_reservation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     agent_name: Mapped[str] = mapped_column(String(128), index=True)
     prompt_name: Mapped[str] = mapped_column(String(128), default="")
     prompt_version: Mapped[str] = mapped_column(String(64), default="")
@@ -49,3 +51,4 @@ class WorkflowRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     stages: Mapped[list] = mapped_column(JSON, default=list)
     # [{name, status, started_at, ended_at, error}]
     error: Mapped[str] = mapped_column(Text, default="")
+    usage_reservation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

@@ -6,6 +6,7 @@ import {
   Cpu,
   FileStack,
   Files,
+  Gauge,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -184,6 +185,9 @@ export function Layout({ user }: { user: User }) {
                 <Link to="/settings" role="menuitem" onClick={() => setMenuOpen(false)}>
                   <SettingsIcon aria-hidden /> {t("nav.settings")}
                 </Link>
+                <Link to="/usage" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  <Gauge aria-hidden /> {t("nav.usage")}
+                </Link>
                 <Link to="/ai-config" role="menuitem" onClick={() => setMenuOpen(false)}>
                   <Cpu aria-hidden /> {t("nav.aiConfig")}
                 </Link>
@@ -194,6 +198,12 @@ export function Layout({ user }: { user: User }) {
                     </Link>
                     <Link to="/admin/users" role="menuitem" onClick={() => setMenuOpen(false)}>
                       <Users aria-hidden /> {t("nav.users")}
+                    </Link>
+                    <Link to="/admin/plans" role="menuitem" onClick={() => setMenuOpen(false)}>
+                      <Files aria-hidden /> {t("nav.plans")}
+                    </Link>
+                    <Link to="/admin/usage" role="menuitem" onClick={() => setMenuOpen(false)}>
+                      <Gauge aria-hidden /> {t("nav.usageDashboard")}
                     </Link>
                   </>
                 )}

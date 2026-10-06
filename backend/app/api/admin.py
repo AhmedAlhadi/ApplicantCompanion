@@ -54,6 +54,13 @@ def _admin_user_payload(db: Session, user: User) -> dict:
         .count()
     )
     data["onboarding_status"] = get_user_setting(db, user.id, ONBOARDING_KEY, None)
+    from ..services.entitlements import EntitlementsService
+
+    effective = EntitlementsService(db).resolve(user.id)
+    data["plan_code"] = effective.plan_code
+    data["plan_name"] = effective.plan_name
+    data["subscription_status"] = effective.subscription.status if effective.subscription else None
+    data["plan_usable"] = effective.usable
     return data
 
 
@@ -101,6 +108,9 @@ def create_user(payload: AdminUserCreate, request: Request, db: Session = Depend
     )
     db.add(user)
     db.flush()
+    from ..services.entitlements import EntitlementsService
+
+    EntitlementsService(db).assign(user.id, plan_code="explorer", assigned_by=admin.id, notes="Admin-created account")
     audit(db, admin, "admin.user.create", "user", user.id, {"email": email, "is_admin": payload.is_admin}, request)
     db.commit()
     db.refresh(user)

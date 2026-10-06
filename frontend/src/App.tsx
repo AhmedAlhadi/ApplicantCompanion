@@ -18,6 +18,11 @@ import Jobs from "./pages/Jobs";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
+import Usage from "./pages/Usage";
+import AdminPlans from "./pages/AdminPlans";
+import AdminPlanEditor from "./pages/AdminPlanEditor";
+import AdminUsageDashboard from "./pages/AdminUsageDashboard";
+import AdminUserEntitlements from "./pages/AdminUserEntitlements";
 import CoachWidget from "./components/coach/CoachWidget";
 import { setContentLanguage, setUiLanguage } from "./lib/i18n";
 
@@ -108,6 +113,7 @@ export default function App() {
           <Route path="/templates" element={<Navigate to="/settings" replace />} />
           <Route path="/cover-letter-templates" element={<Navigate to="/settings" replace />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/usage" element={<Usage />} />
           <Route path="/ai-config" element={<AIConfig />} />
           <Route
             path="/admin"
@@ -116,6 +122,22 @@ export default function App() {
           <Route
             path="/admin/users"
             element={me.data.is_admin ? <AdminUsers currentUser={me.data} /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/admin/plans"
+            element={me.data.is_admin ? <AdminPlans /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/admin/plans/:planId"
+            element={me.data.is_admin ? <AdminPlanEditor /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/admin/usage"
+            element={me.data.is_admin ? <AdminUsageDashboard /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/admin/users/:userId/entitlements"
+            element={me.data.is_admin ? <AdminUserEntitlements /> : <Navigate to="/" replace />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

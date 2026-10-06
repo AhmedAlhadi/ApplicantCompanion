@@ -13,13 +13,15 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { Application, Job, JobAnalysisResponse, JobScore, ResearchResponse } from "../api/types";
 import { openCoachWidget } from "../components/coach/CoachWidget";
 import { Empty, ErrorBox, Link, ScoreRing, Spinner, UnverifiedEvidenceNote, publishedFit, useApi, useWorkflow } from "../components/ui";
 import ThinkingProgress, { THINKING_PHRASES } from "../components/ThinkingProgress";
 import { EvidenceGraph } from "../components/EvidenceGraph";
+import { UsageLimitPanel } from "../components/Usage";
 import { dateLocale, useT } from "../lib/i18n";
+import { asUsageLimit } from "../lib/usageErrors";
 
 const TAB_KEYS = ["details", "fit", "intelligence"] as const;
 
@@ -133,6 +135,7 @@ export default function JobDetail() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<JobForm>(EMPTY_FORM);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [usageGate, setUsageGate] = useState<ReturnType<typeof asUsageLimit>>(null);
   const [saved, setSaved] = useState(false);
   const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -159,6 +162,7 @@ export default function JobDetail() {
 
   const runAnalysis = async () => {
     setBusy(true);
+    setUsageGate(null);
     try {
       const accepted = await api.post<{ workflow_run_id: string }>(
         `/api/jobs/${id}/analyze`,
@@ -166,6 +170,8 @@ export default function JobDetail() {
       );
       setWorkflowRunId(accepted.workflow_run_id);
       analysis.reload();
+    } catch (err) {
+      if (err instanceof ApiError) setUsageGate(asUsageLimit(err.detail));
     } finally {
       setBusy(false);
     }
@@ -173,6 +179,7 @@ export default function JobDetail() {
 
   const startApplication = async () => {
     setBusy(true);
+    setUsageGate(null);
     try {
       const existing = relatedApps[0];
       if (existing) {
@@ -182,6 +189,8 @@ export default function JobDetail() {
       const app = await api.post<Application>("/api/applications", { job_id: id });
       await api.post(`/api/applications/${app.id}/strategy`);
       navigate(`/applications/${app.id}`);
+    } catch (err) {
+      if (err instanceof ApiError) setUsageGate(asUsageLimit(err.detail));
     } finally {
       setBusy(false);
     }
@@ -230,6 +239,7 @@ export default function JobDetail() {
       <p className="small muted" style={{ marginTop: 0 }}>
         <Link to="/jobs"><ArrowLeft aria-hidden style={{ width: 14, height: 14, verticalAlign: "-2px" }} /> All jobs</Link>
       </p>
+      {usageGate && <UsageLimitPanel detail={usageGate} />}
       <div className="row spread">
         <div>
           <h1 className="page-title">{job.position_title || t("common.untitledRole")}</h1>

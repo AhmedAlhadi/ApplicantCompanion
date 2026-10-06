@@ -111,6 +111,78 @@ def _unescape_pdf(raw: bytes) -> str:
     return out.decode("latin-1", errors="replace")
 
 
+def _has_experience_identity(payload: dict | None) -> bool:
+    """An experience needs an employer or a title; otherwise it is an empty shell."""
+    data = payload or {}
+    return bool(str(data.get("organization") or "").strip() or str(data.get("job_title") or "").strip())
+
+
+def build_review_proposals(
+    extracted_items: list[dict],
+    model_proposals: list[dict],
+    existing_items: list[dict],
+) -> list[dict]:
+    """Pair each extracted record with the model's merge/create decision.
+
+    Proposal order matches the extracted items. The extracted payload is always
+    the saved record. Decisions the model omits become new records, so a short
+    response cannot drop the rest of the resume.
+    """
+    by_id = {item["id"]: item for item in existing_items}
+    proposals: list[dict] = []
+    for index, extracted in enumerate(extracted_items):
+        entity_type = extracted.get("entity_type") or "experience"
+        payload = dict(extracted.get("payload") or {})
+        model = model_proposals[index] if index < len(model_proposals) else {}
+        if not isinstance(model, dict):
+            model = {}
+
+        action = model.get("action") or "create"
+        if action not in ("merge", "create"):
+            action = "create"
+        target_id = model.get("target_id") if action == "merge" else None
+        target_label = (model.get("target_label") or "") if action == "merge" else ""
+        reasoning = model.get("reasoning") or ""
+        model_type = model.get("entity_type") or entity_type
+        if model_type != entity_type:
+            action = "create"
+            target_id = None
+            target_label = ""
+
+        if action == "merge" and target_id:
+            target = by_id.get(target_id)
+            if not target or target.get("entity_type") != entity_type:
+                action = "create"
+                target_id = None
+                target_label = ""
+                reasoning = (reasoning + " (invalid target discarded; defaulted to create)").strip()
+            elif not target_label:
+                target_label = target.get("label", "")
+        else:
+            action = "create"
+            target_id = None
+            target_label = ""
+
+        try:
+            confidence = float(model.get("confidence") if model.get("confidence") is not None else 0.5)
+        except (TypeError, ValueError):
+            confidence = 0.5
+
+        proposals.append(
+            {
+                "proposal_id": model.get("proposal_id") or str(uuid.uuid4()),
+                "entity_type": entity_type,
+                "action": action,
+                "target_id": target_id,
+                "target_label": target_label,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "payload": payload,
+            }
+        )
+    return proposals
+
+
 def _uniq_extend(existing: list | None, new_items: list | None) -> list:
     """Append unique string items while preserving order."""
     out = list(existing or [])
@@ -306,32 +378,11 @@ class IngestionService:
             recon = CareerReconciliationAgent().run(
                 ctx, extracted_items=extracted_items, existing_items=existing_items
             )
-            by_id = {e["id"]: e for e in existing_items}
-            for prop in recon.proposals:
-                data = prop.model_dump()
-                if not data.get("proposal_id"):
-                    data["proposal_id"] = str(uuid.uuid4())
-                # Validate merge targets belong to the user KB
-                if data.get("action") == "merge" and data.get("target_id"):
-                    target = by_id.get(data["target_id"])
-                    if not target or target.get("entity_type") != data.get("entity_type"):
-                        data["action"] = "create"
-                        data["target_id"] = None
-                        data["target_label"] = ""
-                        data["reasoning"] = (
-                            (data.get("reasoning") or "")
-                            + " (invalid target discarded; defaulted to create)"
-                        ).strip()
-                    elif not data.get("target_label"):
-                        data["target_label"] = target.get("label", "")
-                else:
-                    data["action"] = data.get("action") or "create"
-                    if data["action"] != "merge":
-                        data["target_id"] = None
-                # Ensure payload is present
-                if not data.get("payload"):
-                    data["payload"] = {}
-                proposals.append(data)
+            proposals = build_review_proposals(
+                extracted_items,
+                [prop.model_dump() for prop in recon.proposals],
+                existing_items,
+            )
 
             pending = PendingIngestion(
                 user_id=self.user.id,
@@ -441,6 +492,9 @@ class IngestionService:
             entity_type = proposal.get("entity_type", "experience")
             payload = proposal.get("payload") or {}
 
+            if entity_type == "experience" and not _has_experience_identity(payload):
+                continue
+
             if entity_type == "experience":
                 if action == "merge" and target_id:
                     row = self._get_owned(Experience, target_id)
@@ -502,7 +556,8 @@ class IngestionService:
         items: list[dict] = []
         for exp in result.experiences:
             payload = exp.model_dump()
-            items.append({"entity_type": "experience", "payload": payload})
+            if _has_experience_identity(payload):
+                items.append({"entity_type": "experience", "payload": payload})
             # Nested projects as separate reconcilable entities
             for proj_text in exp.projects or []:
                 if not str(proj_text).strip():

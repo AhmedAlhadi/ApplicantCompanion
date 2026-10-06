@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Check, FileSearch, Inbox, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
-import { api, waitForCareerIngest } from "../api/client";
+import { api, ApiError, waitForCareerIngest } from "../api/client";
 import type {
   CareerAchievement,
   CareerDocument,
@@ -18,6 +18,7 @@ import { ExperienceRoleCard } from "../components/ExperienceRoleCards";
 import { openCoachWidget } from "../components/coach/CoachWidget";
 import { Empty, ErrorBox, Link, useApi } from "../components/ui";
 import { t, useT } from "../lib/i18n";
+import { usageMessage } from "../lib/usageErrors";
 
 /* Field-driven CRUD tabs keep every career entity editable with provenance
    badges (§47: Verified / Unverified / Needs Review). */
@@ -769,8 +770,9 @@ function DocumentsTab({ onPendingCreated }: { onPendingCreated: (id: string) => 
     try {
       await api.upload("/api/career/documents", fd);
       docs.reload();
-    } catch (err: any) {
-      setError(typeof err.detail === "string" ? err.detail : "Upload failed");
+    } catch (err) {
+      const limited = err instanceof ApiError ? usageMessage(err.detail, t) : null;
+      setError(limited || (err instanceof Error ? err.message : "Upload failed"));
     } finally {
       setBusy(false);
     }
